@@ -35,15 +35,6 @@ func (r *DockerRuntime) Run(ctx context.Context, config RunConfig) (string, erro
 		args = append(args, "--workdir", "/workspace")
 	}
 
-	if config.UseTmux {
-		// When using tmux, we don't override the entrypoint to 'gemini' 
-		// because we want to run tmux which then runs gemini.
-		// We assume 'tmux' is in the PATH of the container.
-	} else {
-		// Override entrypoint to ensure it's interactive and uses a shell
-		args = append(args, "--entrypoint", "gemini")
-	}
-
 	// Propagate Auth
 	if config.Auth.GeminiAPIKey != "" {
 		args = append(args, "-e", fmt.Sprintf("GEMINI_API_KEY=%s", config.Auth.GeminiAPIKey))
@@ -96,6 +87,8 @@ func (r *DockerRuntime) Run(ctx context.Context, config RunConfig) (string, erro
 
 	if config.UseTmux {
 		args = append(args, "tmux", "new-session", "-s", "gswarm", "gemini")
+	} else {
+		args = append(args, "gemini")
 	}
 
 	if config.Detached {
