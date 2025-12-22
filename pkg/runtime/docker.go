@@ -35,8 +35,14 @@ func (r *DockerRuntime) Run(ctx context.Context, config RunConfig) (string, erro
 		args = append(args, "--workdir", "/workspace")
 	}
 
-	// Override entrypoint to ensure it's interactive and uses a shell
-	args = append(args, "--entrypoint", "gemini")
+	if config.UseTmux {
+		// When using tmux, we don't override the entrypoint to 'gemini' 
+		// because we want to run tmux which then runs gemini.
+		// We assume 'tmux' is in the PATH of the container.
+	} else {
+		// Override entrypoint to ensure it's interactive and uses a shell
+		args = append(args, "--entrypoint", "gemini")
+	}
 
 	// Propagate Auth
 	if config.Auth.GeminiAPIKey != "" {
@@ -82,8 +88,15 @@ func (r *DockerRuntime) Run(ctx context.Context, config RunConfig) (string, erro
 	for k, v := range config.Labels {
 		args = append(args, "--label", fmt.Sprintf("%s=%s", k, v))
 	}
+	if config.UseTmux {
+		args = append(args, "--label", "gswarm.tmux=true")
+	}
 
 	args = append(args, config.Image)
+
+	if config.UseTmux {
+		args = append(args, "tmux", "new-session", "-s", "gswarm", "gemini")
+	}
 
 	if config.Detached {
 		cmd := exec.CommandContext(ctx, r.Command, args...)
@@ -190,11 +203,29 @@ func (r *DockerRuntime) GetLogs(ctx context.Context, id string) (string, error) 
 }
 
 func (r *DockerRuntime) Attach(ctx context.Context, id string) error {
-	// Using exec.Command instead of exec.CommandContext for attach to allow interactive TTY
-	// though CommandContext should also work if we don't cancel it.
-	cmd := exec.Command(r.Command, "attach", id)
+	// Check if the container is using tmux
+	inspectCmd := exec.CommandContext(ctx, r.Command, "inspect", "--format", "{{index .Config.Labels \"gswarm.tmux\"}}", id)
+	out, _ := inspectCmd.Output()
+	useTmux := strings.TrimSpace(string(out)) == "true"
+
+	var cmd *exec.Cmd
+	if useTmux {
+		cmd = exec.Command(r.Command, "exec", "-it", id, "tmux", "attach", "-t", "gswarm")
+	} else {
+		// Using exec.Command instead of exec.CommandContext for attach to allow interactive TTY
+		// though CommandContext should also work if we don't cancel it.
+		cmd = exec.Command(r.Command, "attach", id)
+	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func (r *DockerRuntime) ImageExists(ctx context.Context, image string) (bool, error) {
+	cmd := exec.CommandContext(ctx, r.Command, "image", "inspect", image)
+	if err := cmd.Run(); err != nil {
+		return false, nil
+	}
+	return true, nil
 }

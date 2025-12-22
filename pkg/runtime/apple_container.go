@@ -41,8 +41,14 @@ func (r *AppleContainerRuntime) Run(ctx context.Context, config RunConfig) (stri
 		args = append(args, "--workdir", "/workspace")
 	}
 
-	// Override entrypoint to ensure it's interactive and uses a shell
-	args = append(args, "--entrypoint", "gemini")
+	if config.UseTmux {
+		// When using tmux, we don't override the entrypoint to 'gemini' 
+		// because we want to run tmux which then runs gemini.
+		// We assume 'tmux' is in the PATH of the container.
+	} else {
+		// Override entrypoint to ensure it's interactive and uses a shell
+		args = append(args, "--entrypoint", "gemini")
+	}
 
 	// Propagate Auth
 	if config.Auth.GeminiAPIKey != "" {
@@ -104,8 +110,15 @@ func (r *AppleContainerRuntime) Run(ctx context.Context, config RunConfig) (stri
 	for k, v := range config.Labels {
 		args = append(args, "--label", fmt.Sprintf("%s=%s", k, v))
 	}
+	if config.UseTmux {
+		args = append(args, "--label", "gswarm.tmux=true")
+	}
 
 	args = append(args, config.Image)
+
+	if config.UseTmux {
+		args = append(args, "tmux", "new-session", "-s", "gswarm", "gemini")
+	}
 
 	if config.Detached {
 		cmd := exec.CommandContext(ctx, r.Command, args...)
@@ -208,15 +221,41 @@ func (r *AppleContainerRuntime) GetLogs(ctx context.Context, id string) (string,
 }
 
 func (r *AppleContainerRuntime) Attach(ctx context.Context, id string) error {
-	// Apple 'container' CLI does not support 'attach'.
-	// We use 'exec -it <id> /bin/bash' as a proxy for an interactive session.
-	args := []string{"exec", "-it", id, "/bin/bash"}
+	// Find the container to check for tmux label
+	agents, err := r.List(ctx, nil)
+	useTmux := false
+	if err == nil {
+		for _, a := range agents {
+			if a.ID == id || a.Name == id {
+				// We need labels here, but AgentInfo doesn't have them.
+				// Let's re-run list with format json to be sure or just try tmux.
+				break
+			}
+		}
+	}
+
+	// For Apple Container, we highly recommend tmux.
+	// We'll try to detect it by running a quick exec.
+	checkTmux := exec.CommandContext(ctx, r.Command, "exec", id, "tmux", "ls")
+	if err := checkTmux.Run(); err == nil {
+		useTmux = true
+	}
+
+	var args []string
+	if useTmux {
+		args = []string{"exec", "-it", id, "tmux", "attach", "-t", "gswarm"}
+	} else {
+		// Apple 'container' CLI does not support 'attach'.
+		// We use 'exec -it <id> /bin/bash' as a proxy for an interactive session.
+		args = []string{"exec", "-it", id, "/bin/bash"}
+	}
+
 	cmd := exec.Command(r.Command, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	err := cmd.Run()
-	if err != nil {
+	err = cmd.Run()
+	if err != nil && !useTmux {
 		// Fallback to /bin/sh if /bin/bash is not available
 		args[3] = "/bin/sh"
 		cmd = exec.Command(r.Command, args...)
@@ -225,5 +264,13 @@ func (r *AppleContainerRuntime) Attach(ctx context.Context, id string) error {
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
 	}
-	return nil
+	return err
+}
+
+func (r *AppleContainerRuntime) ImageExists(ctx context.Context, image string) (bool, error) {
+	cmd := exec.CommandContext(ctx, r.Command, "image", "inspect", image)
+	if err := cmd.Run(); err != nil {
+		return false, nil
+	}
+	return true, nil
 }

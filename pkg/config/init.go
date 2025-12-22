@@ -36,7 +36,8 @@ You are a specialized agent working within a Gemini Swarm.
 `
 
 const DefaultGswarmJSON = `{
-  "image": "gemini-cli-sandbox"
+  "image": "gemini-cli-sandbox",
+  "use_tmux": false
 }
 `
 

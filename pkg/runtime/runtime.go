@@ -22,6 +22,7 @@ type RunConfig struct {
 	Labels    map[string]string
 	Auth      config.AuthConfig
 	Detached  bool
+	UseTmux   bool
 }
 
 type Runtime interface {
@@ -30,4 +31,5 @@ type Runtime interface {
 	List(ctx context.Context, labelFilter map[string]string) ([]AgentInfo, error)
 	GetLogs(ctx context.Context, id string) (string, error)
 	Attach(ctx context.Context, id string) error
+	ImageExists(ctx context.Context, image string) (bool, error)
 }
