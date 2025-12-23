@@ -14,7 +14,8 @@ var deleteCmd = &cobra.Command{
 	Aliases: []string{"rm"},
 	Short:   "Delete an agent",
 	Long:    `Stop and remove an agent container and its associated files and worktree.`,
-	Args:    cobra.ExactArgs(1),	RunE: func(cmd *cobra.Command, args []string) error {
+	Args:    cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
 		agentName := args[0]
 		rt := runtime.GetRuntime()
 

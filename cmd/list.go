@@ -19,8 +19,9 @@ var (
 
 // listCmd represents the list command
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List running scion agents",
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List running scion agents",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		rt := runtime.GetRuntime()
 		filters := map[string]string{
