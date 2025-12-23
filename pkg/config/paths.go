@@ -42,6 +42,24 @@ func GetProjectDir() (string, error) {
 	return filepath.Join(wd, DotScion), nil
 }
 
+// GetTargetProjectDir returns the directory where a grove should be initialized.
+func GetTargetProjectDir() (string, error) {
+	// 1. Root of the current git repo if run inside a repo
+	if util.IsGitRepo() {
+		root, err := util.RepoRoot()
+		if err == nil {
+			return filepath.Join(root, DotScion), nil
+		}
+	}
+
+	// 2. Current directory
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(wd, DotScion), nil
+}
+
 func GetGlobalDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

@@ -32,7 +32,7 @@ go build -o ../scion-test/scion ./main.go
 
 ### Initialize the test project
 ```bash
-./scion init
+./scion grove init
 ```
 **Verification**:
 - Check for `.scion/` in the `scion-test` directory.

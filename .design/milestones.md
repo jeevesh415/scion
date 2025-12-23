@@ -5,7 +5,7 @@ This document breaks down the implementation of `scion` into independent stages,
 ## Milestone 1: Project Scaffolding & Configuration
 **Goal**: Establish the basic CLI structure and filesystem management.
 
-- [x] Implement `scion init` (**Completed**)
+- [x] Implement `scion grove init` (**Completed**)
     - [x] Create `.scion/` directory structure in the current repo.
     - [x] Seed `.scion/templates/default` with basic agent structure.
     - [x] Create global `~/.scion/` structure for Playground groves.

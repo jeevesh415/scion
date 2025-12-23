@@ -28,8 +28,8 @@ var stopCmd = &cobra.Command{
 
 		// Cleanup worktree if it exists in either project or global location
 		var agentsDirs []string
-		if repoDir, ok := config.GetRepoDir(); ok {
-			agentsDirs = append(agentsDirs, filepath.Join(repoDir, "agents"))
+		if pDir, err := config.GetProjectDir(); err == nil {
+			agentsDirs = append(agentsDirs, filepath.Join(pDir, "agents"))
 		}
 		if globalDir, err := config.GetGlobalAgentsDir(); err == nil {
 			agentsDirs = append(agentsDirs, globalDir)

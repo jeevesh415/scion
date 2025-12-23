@@ -18,7 +18,7 @@ go build -o "${TEST_DIR}/scion" .
 
 cd "${TEST_DIR}"
 echo "=== Initializing scion ==="
-./scion init
+./scion grove init
 
 echo "=== Setup Complete ==="
 ls -A1 .scion

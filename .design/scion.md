@@ -13,44 +13,30 @@ This document details the design for `scion`, a container-based orchestration to
 ## Architecture Overview
 
 The system follows a Manager-Worker architecture:
-- **Grove Manager (`scion`)**: A host-side CLI that orchestrates the lifecycle of agents.
+- **Grove Manager (`scion`)**: A host-side CLI that orchestrates the lifecycle of agents within a **Grove** (or **Group**).
 - **Grove Workers**: Isolated containers running the Gemini CLI, acting as independent agents.
 
 ### 1. Groves & Contexts
 
-A **Grove** is the top-level logical container for a group of agents.
+A **Grove** (alias: **Group**) is the grouping construct for a set of agents. The `.scion` directory represents a grove.
 
-- **Project Grove**: Linked to a project directory. If the directory is a git repository, additional features like automatic worktree management become available. The grove name defaults to the directory name (e.g., `my-app`).
-- **Playground Grove**: A default global grove (`playground`) for ad-hoc agents not tied to a specific project.
+- **Project Grove**: Linked to a project directory. By default, it is initialized at the root of the current git repository if one is detected, otherwise in the current directory. If the directory is a git repository, additional features like automatic worktree management become available. The grove name defaults to the directory name (e.g., `my-app`).
+- **Playground Grove**: A default global grove (`playground`) for ad-hoc agents not tied to a specific project, stored in the user's home directory.
 
 ### 2. Agent Templates
-
-Agents are provisioned using **Templates**, which define their persona, capabilities, and tools.
-
-- **Storage**:
-  - Project templates: `.scion/templates/` (checked into the repo).
-  - Global templates: `~/.scion/templates/`.
-- **Structure**: A template directory mirrors the agent's home directory structure (`/home/gemini`), with an additional `scion.json` for manager-level configuration.
-  ```text
-  template-name/
-  ├── scion.json             # scion-specific config (e.g., container image)
-  ├── .gemini/
-  │   ├── settings.json       # Allowed tools, MCP servers, active extensions
-  │   ├── system_prompt.md    # Agent persona and behavioral instructions
-  │   └── gemini.md           # Initial context
-  ├── .config/
-  │   └── gcloud/             # Optional: Pre-seeded credentials
-  └── .bashrc                 # Optional: Shell aliases
-  ```
-- **Inheritance**: A `default` template acts as the base. New agents inherit from `default` unless a specific type is requested. Files in the custom template overwrite those in `default` (e.g., `scion.json` in a custom template overrides the image).
-
+...
 ### 3. Grove Manager CLI (`scion`)
 
 The `scion` tool manages the lifecycle of groves and agents.
 
-**Core Commands:**
-- `scion init`: Initialize `.scion/` structure in the current project.
-- `scion start <task> --name <agent> [--type <template>]`: Provision and launch a new agent.
+**Grove Commands:**
+- `scion grove init`: Initialize the `.scion/` directory representing a grove.
+    - Default: Current git repo root.
+    - Fallback: Current directory.
+    - Global (`-g`): User's home directory.
+
+**Agent Commands:**
+- `scion start <agent-name> <task...>`: Provision and launch a new agent in the current grove.
 - `scion list`: Show running agents, their status, and assigned grove.
 - `scion attach <agent>`: Connect the host TTY to the agent's container session.
 - `scion stop <agent>`: Gracefully terminate an agent and cleanup resources.

@@ -1,10 +1,23 @@
 {
-  "tools": ["*"],
-  "extensions": [],
   "yolo": true,
   "security": {
     "auth": {
       "selectedType": "gemini-api-key"
     }
+  },
+	"telemetry": {
+    "enabled": false
+  },
+	"general": {
+    "disableAutoUpdate": true,
+    "disableUpdateNag": true,
+    "previewFeatures": true
+  },
+	"ui": {
+    "accessibility": {
+      "disableLoadingPhrases": true
+    },
+    "hideFooter": true,
+    "hideWindowTitle": true
   }
 }

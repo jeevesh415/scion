@@ -53,7 +53,7 @@ If OAuth is detected:
 ### 3. Agent Configuration Alignment
 
 Each agent has its own `.gemini/settings.json` in its home directory. 
-- During `scion init`, the template should *not* contain hardcoded keys.
+- During `scion grove init`, the template should *not* contain hardcoded keys.
 - Instead, the agent's system prompt or configuration should be designed to rely on the environment variables provided by the runtime.
 
 ## Security Considerations

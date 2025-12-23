@@ -40,14 +40,22 @@ form the task prompt, which is passed to the gemini command.`,
 
 		// 1. Prepare agent directories
 		var agentsDir string
-		repoDir, hasRepoConfig := config.GetRepoDir()
-
-		if hasRepoConfig {
-			// If .scion exists at repo root, verify .gitignore
-			if !util.IsIgnored(".scion/agents/") {
-				return fmt.Errorf("security error: '.scion/agents/' must be in .gitignore when using a project-local grove")
+		projectDir, err := config.GetProjectDir()
+		hasProjectConfig := false
+		if err == nil {
+			if info, err := os.Stat(projectDir); err == nil && info.IsDir() {
+				hasProjectConfig = true
 			}
-			agentsDir = filepath.Join(repoDir, "agents")
+		}
+
+		if hasProjectConfig {
+			// If .scion exists, verify .gitignore if in a repo
+			if util.IsGitRepo() {
+				if !util.IsIgnored(".scion/agents/") {
+					return fmt.Errorf("security error: '.scion/agents/' must be in .gitignore when using a project-local grove")
+				}
+			}
+			agentsDir = filepath.Join(projectDir, "agents")
 		} else {
 			// Fallback to global agents directory
 			var err error

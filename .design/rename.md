@@ -41,7 +41,7 @@ The goal is to replace all occurrences of `gswarm` with `scion` across the entir
 - [ ] Run `go mod tidy`.
 - [ ] Run `go build ./...`.
 - [ ] Run existing tests (`go test ./...`).
-- [ ] Verify CLI functionality (`scion init`, `scion start`, etc.).
+- [ ] Verify CLI functionality (`scion grove init`, `scion start`, etc.).
 
 ---
 

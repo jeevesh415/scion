@@ -49,10 +49,17 @@ const DefaultBashrc = `# scion agent bashrc
 alias g="gemini"
 `
 
-func InitProject() error {
-	projectDir, err := GetProjectDir()
-	if err != nil {
-		return err
+func InitProject(targetDir string) error {
+	var projectDir string
+	var err error
+
+	if targetDir != "" {
+		projectDir = targetDir
+	} else {
+		projectDir, err = GetTargetProjectDir()
+		if err != nil {
+			return err
+		}
 	}
 
 	templatesDir := filepath.Join(projectDir, "templates")

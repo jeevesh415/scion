@@ -19,7 +19,7 @@ A container-based orchestration tool for managing concurrent Gemini CLI agents.
 ### Initialize
 
 ```bash
-scion init
+scion grove init
 ```
 
 ### Start an Agent
