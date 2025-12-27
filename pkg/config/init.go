@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-//go:embed embeds/*
+//go:embed all:embeds/*
 var embedsFS embed.FS
 
 func SeedTemplateDir(templateDir string, templateName string, harnessProvider string, force bool) error {
@@ -56,8 +56,10 @@ func SeedTemplateDir(templateDir string, templateName string, harnessProvider st
 	}
 
 	mdFile := "gemini.md"
+	claudeJSON := ""
 	if harnessProvider == "claude" {
 		mdFile = "claude.md"
+		claudeJSON = readEmbed(".claude.json")
 	}
 
 	// Seed template files
@@ -73,9 +75,17 @@ func SeedTemplateDir(templateDir string, templateName string, harnessProvider st
 		{filepath.Join(templateDir, ".bashrc"), readEmbed("bashrc")},
 	}
 
+	if claudeJSON != "" {
+		files = append(files, struct {
+			path    string
+			content string
+		}{filepath.Join(templateDir, ".claude.json"), claudeJSON})
+	}
+
 	for _, f := range files {
-		// Always write settings.json to ensure it matches current defaults
-		if force || filepath.Base(f.path) == "settings.json" {
+		// Always write settings.json and .claude.json to ensure they match current defaults
+		baseName := filepath.Base(f.path)
+		if force || baseName == "settings.json" || baseName == ".claude.json" {
 			if err := os.WriteFile(f.path, []byte(f.content), 0644); err != nil {
 				return fmt.Errorf("failed to write file %s: %w", f.path, err)
 			}

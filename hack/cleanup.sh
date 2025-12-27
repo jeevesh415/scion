@@ -22,7 +22,8 @@ echo "=== Cleaning up specific scion directories ==="
 if [ -d "${TEST_DIR}/.scion" ]; then
     # Only remove agents and default template
     rm -rf "${TEST_DIR}/.scion/agents"
-    rm -rf "${TEST_DIR}/.scion/templates/default"
+    rm -rf "${TEST_DIR}/.scion/templates/claude"
+    rm -rf "${TEST_DIR}/.scion/templates/gemini"
     echo "Removed .scion/agents and .scion/templates/default"
 fi
 

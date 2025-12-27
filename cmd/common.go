@@ -143,7 +143,83 @@ func ProvisionAgent(agentName string, templateName string, agentImage string, gr
 	agentCfgData, _ := json.MarshalIndent(finalScionCfg, "", "  ")
 	os.WriteFile(filepath.Join(agentHome, "scion.json"), agentCfgData, 0644)
 
+	// Update .claude.json if it exists
+	if finalScionCfg.HarnessProvider == "claude" {
+		_ = UpdateClaudeJSON(agentName, agentHome, agentWorkspace)
+	}
+
 	return agentHome, agentWorkspace, finalScionCfg, nil
+}
+
+func UpdateClaudeJSON(agentName, agentHome, agentWorkspace string) error {
+	claudeJSONPath := filepath.Join(agentHome, ".claude.json")
+	if _, err := os.Stat(claudeJSONPath); os.IsNotExist(err) {
+		return nil
+	}
+
+	data, err := os.ReadFile(claudeJSONPath)
+	if err != nil {
+		return err
+	}
+
+	var claudeCfg map[string]interface{}
+	if err := json.Unmarshal(data, &claudeCfg); err != nil {
+		return err
+	}
+
+	repoRoot, err := util.RepoRoot()
+	containerWorkspace := "/workspace"
+	if err == nil {
+		relWorkspace, err := filepath.Rel(repoRoot, agentWorkspace)
+		if err == nil && !strings.HasPrefix(relWorkspace, "..") {
+			containerWorkspace = filepath.Join("/repo-root", relWorkspace)
+		}
+	}
+
+	// Update projects map
+	projects, ok := claudeCfg["projects"].(map[string]interface{})
+	if !ok {
+		projects = make(map[string]interface{})
+		claudeCfg["projects"] = projects
+	}
+
+	// We want to replace the existing project entry with the new one
+	// For now, we assume there's only one project in this context
+	// or we just add/overwrite the one for this agent.
+	
+	// If there's an existing entry, we might want to preserve its settings but change the key
+	var projectSettings interface{}
+	for _, v := range projects {
+		projectSettings = v
+		break
+	}
+
+	if projectSettings == nil {
+		projectSettings = map[string]interface{}{
+			"allowedTools":                            []interface{}{},
+			"mcpContextUris":                          []interface{}{},
+			"mcpServers":                              map[string]interface{}{},
+			"enabledMcpjsonServers":                  []interface{}{},
+			"disabledMcpjsonServers":                 []interface{}{},
+			"hasTrustDialogAccepted":                  false,
+			"projectOnboardingSeenCount":              1,
+			"hasClaudeMdExternalIncludesApproved":    false,
+			"hasClaudeMdExternalIncludesWarningShown": false,
+			"exampleFiles":                            []interface{}{},
+		}
+	}
+
+	// Clear existing projects and set the new one
+	newProjects := make(map[string]interface{})
+	newProjects[containerWorkspace] = projectSettings
+	claudeCfg["projects"] = newProjects
+
+	newData, err := json.MarshalIndent(claudeCfg, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(claudeJSONPath, newData, 0644)
 }
 
 var (
@@ -193,6 +269,10 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 	agentDir, agentHome, agentWorkspace, finalScionCfg, err := GetAgent(agentName, templateName, agentImage, grovePath, "")
 	if err != nil {
 		return err
+	}
+
+	if finalScionCfg != nil && finalScionCfg.HarnessProvider == "claude" {
+		_ = UpdateClaudeJSON(agentName, agentHome, agentWorkspace)
 	}
 
 	promptFile := filepath.Join(agentDir, "prompt.md")

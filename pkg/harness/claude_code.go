@@ -26,8 +26,7 @@ func (c *ClaudeCode) GetEnv(agentName string, unixUsername string, model string,
 }
 
 func (c *ClaudeCode) GetCommand(task string, resume bool) []string {
-	// Placeholder for Claude specific command
-	return []string{"claude", task}
+	return []string{"claude", "--no-chrome", "--dangerously-skip-permissions", task}
 }
 
 func (c *ClaudeCode) PropagateFiles(homeDir, unixUsername string, auth api.AuthConfig) error {
