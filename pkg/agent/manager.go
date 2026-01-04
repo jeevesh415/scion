@@ -20,7 +20,7 @@ type Manager interface {
 	Stop(ctx context.Context, agentID string) error
 
 	// Delete terminates and removes an agent
-	Delete(ctx context.Context, agentID string, deleteFiles bool, grovePath string) error
+	Delete(ctx context.Context, agentID string, deleteFiles bool, grovePath string, removeBranch bool) error
 
 	// List returns active agents
 	List(ctx context.Context, filter map[string]string) ([]api.AgentInfo, error)
@@ -43,7 +43,7 @@ func (m *AgentManager) Stop(ctx context.Context, agentID string) error {
 	return m.Runtime.Stop(ctx, agentID)
 }
 
-func (m *AgentManager) Delete(ctx context.Context, agentID string, deleteFiles bool, grovePath string) error {
+func (m *AgentManager) Delete(ctx context.Context, agentID string, deleteFiles bool, grovePath string, removeBranch bool) error {
 	// 1. Check if container exists
 	// We use name filter if possible, but runtime.List might take map[string]string
 	agents, err := m.Runtime.List(ctx, map[string]string{"scion.name": agentID})
@@ -66,7 +66,7 @@ func (m *AgentManager) Delete(ctx context.Context, agentID string, deleteFiles b
 	}
 
 	if deleteFiles {
-		return DeleteAgentFiles(agentID, grovePath)
+		return DeleteAgentFiles(agentID, grovePath, removeBranch)
 	}
 	return nil
 }

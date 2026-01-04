@@ -35,7 +35,7 @@ var stopCmd = &cobra.Command{
 		_ = agent.UpdateAgentConfig(agentName, grovePath, "stopped", "", "", "")
 
 		if stopRm {
-			if err := mgr.Delete(context.Background(), agentName, true, grovePath); err != nil {
+			if err := mgr.Delete(context.Background(), agentName, true, grovePath, false); err != nil {
 				return err
 			}
 			fmt.Printf("Agent '%s' stopped and removed.\n", agentName)

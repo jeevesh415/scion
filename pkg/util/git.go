@@ -91,9 +91,36 @@ func CreateWorktree(path, branch string) error {
 }
 
 // RemoveWorktree removes a git worktree at the specified path.
-func RemoveWorktree(path string) error {
+func RemoveWorktree(path string, deleteBranch bool) error {
+	var branchName string
+	var repoRoot string
+
+	if deleteBranch {
+		// Get repo root
+		cmd := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel")
+		output, err := cmd.Output()
+		if err == nil {
+			repoRoot = strings.TrimSpace(string(output))
+		}
+
+		// Get branch name
+		cmd = exec.Command("git", "-C", path, "branch", "--show-current")
+		output, err = cmd.Output()
+		if err == nil {
+			branchName = strings.TrimSpace(string(output))
+		}
+	}
+
 	// Try to remove it by running git from within the worktree itself.
 	// We use "." as the path to remove the worktree we are "in" via -C.
 	cmd := exec.Command("git", "-C", path, "worktree", "remove", ".", "--force")
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	if deleteBranch && branchName != "" && repoRoot != "" {
+		cmd := exec.Command("git", "-C", repoRoot, "branch", "-D", branchName)
+		return cmd.Run()
+	}
+	return nil
 }

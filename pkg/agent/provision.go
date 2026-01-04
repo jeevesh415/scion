@@ -14,7 +14,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/util"
 )
 
-func DeleteAgentFiles(agentName string, grovePath string) error {
+func DeleteAgentFiles(agentName string, grovePath string, removeBranch bool) error {
 	var agentsDirs []string
 	if projectDir, err := config.GetResolvedProjectDir(grovePath); err == nil {
 		agentsDirs = append(agentsDirs, filepath.Join(projectDir, "agents"))
@@ -33,7 +33,7 @@ func DeleteAgentFiles(agentName string, grovePath string) error {
 		agentWorkspace := filepath.Join(agentDir, "workspace")
 		// Check if it's a worktree before trying to remove it
 		if _, err := os.Stat(filepath.Join(agentWorkspace, ".git")); err == nil {
-			if err := util.RemoveWorktree(agentWorkspace); err != nil {
+			if err := util.RemoveWorktree(agentWorkspace, removeBranch); err != nil {
 				// Warn or error?
 			}
 		}

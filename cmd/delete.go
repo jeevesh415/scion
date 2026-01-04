@@ -48,7 +48,7 @@ var deleteCmd = &cobra.Command{
 			fmt.Println("No container found, removing agent definition...")
 		}
 
-		if err := mgr.Delete(context.Background(), agentName, true, grovePath); err != nil {
+		if err := mgr.Delete(context.Background(), agentName, true, grovePath, removeBranch); err != nil {
 			return err
 		}
 
@@ -57,7 +57,10 @@ var deleteCmd = &cobra.Command{
 	},
 }
 
+var removeBranch bool
+
 func init() {
 	rootCmd.AddCommand(deleteCmd)
+	deleteCmd.Flags().BoolVar(&removeBranch, "remove-branch", false, "Remove the git branch associated with the worktree")
 }
 
