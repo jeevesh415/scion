@@ -36,6 +36,7 @@ type ProfileConfig struct {
 	Runtime          string                     `json:"runtime"`
 	Tmux             *bool                      `json:"tmux,omitempty"`
 	Env              map[string]string          `json:"env,omitempty"`
+	Volumes          []api.VolumeMount          `json:"volumes,omitempty"`
 	HarnessOverrides map[string]HarnessOverride `json:"harness_overrides,omitempty"`
 }
 
@@ -83,6 +84,11 @@ func (s *Settings) ResolveHarness(profileName, harnessName string) (HarnessConfi
 	// Merge profile-level env
 	if profile.Env != nil {
 		result.Env = mergeMaps(result.Env, profile.Env)
+	}
+
+	// Merge profile-level volumes
+	if profile.Volumes != nil {
+		result.Volumes = append(result.Volumes, profile.Volumes...)
 	}
 
 	if profile.HarnessOverrides != nil {
@@ -248,6 +254,9 @@ func MergeSettings(base *Settings, data []byte) error {
 			}
 			if v.Env != nil {
 				existing.Env = mergeMaps(existing.Env, v.Env)
+			}
+			if v.Volumes != nil {
+				existing.Volumes = append(existing.Volumes, v.Volumes...)
 			}
 			if v.HarnessOverrides != nil {
 				if existing.HarnessOverrides == nil {
