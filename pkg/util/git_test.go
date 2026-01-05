@@ -128,7 +128,32 @@ func TestGitUtils(t *testing.T) {
 			t.Errorf("Failed to recreate worktree after prune: %v", err)
 		}
 		// Clean up
-		_ = RemoveWorktree(prunePath, true)
+		_, _ = RemoveWorktree(prunePath, true)
+	})
+
+	t.Run("FindWorktreeByBranch", func(t *testing.T) {
+		wtPath := filepath.Join(repoDir, "wt-find")
+		branch := "find-branch"
+
+		if err := CreateWorktree(wtPath, branch); err != nil {
+			t.Fatalf("setup failed: %v", err)
+		}
+
+		foundPath, err := FindWorktreeByBranch(branch)
+		if err != nil {
+			t.Errorf("FindWorktreeByBranch failed: %v", err)
+		}
+
+		// Normalize paths for comparison (resolve symlinks)
+		evalFound, _ := filepath.EvalSymlinks(foundPath)
+		evalWt, _ := filepath.EvalSymlinks(wtPath)
+
+		if evalFound != evalWt {
+			t.Errorf("expected %q, got %q", evalWt, evalFound)
+		}
+
+		// Clean up
+		_, _ = RemoveWorktree(wtPath, true)
 	})
 
 	t.Run("CompareGitVersion", func(t *testing.T) {

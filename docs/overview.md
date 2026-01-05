@@ -11,6 +11,15 @@ Scion is a container-based orchestration tool designed to manage concurrent LLM-
 - **Interactivity**: Agents support "detached" background operation, but users can "attach" to any running agent for human-in-the-loop interaction.
 - **Local and Remote Runtimes**: Supports both local and remote runtime contexts, with the ability to pause and resume agents, including teleporting an agent by, for example, pausing a remote agent, and resuming it locally.
 
+## Configuration
+
+Scion uses a flexible configuration system based on **Profiles**, **Runtimes**, and **Harnesses**. This allows you to define different environments (e.g., local Docker vs. remote Kubernetes) and switch between them easily.
+
+- **Global Settings**: `~/.scion/settings.json`
+- **Grove Settings**: `.scion/settings.json` (Project overrides)
+
+For detailed information on configuring Scion, see the [Settings Reference](settings.md) and [Agent Configuration Reference](scion-config-reference.md).
+
 ## Getting Started
 
 Scion is designed to be easy to start with.

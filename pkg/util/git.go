@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -147,4 +148,39 @@ func RemoveWorktree(path string, deleteBranch bool) (bool, error) {
 func PruneWorktrees() error {
 	cmd := exec.Command("git", "worktree", "prune")
 	return cmd.Run()
+}
+
+// FindWorktreeByBranch returns the absolute path of the worktree checked out to the specified branch.
+// It returns an empty string if not found.
+func FindWorktreeByBranch(branchName string) (string, error) {
+	cmd := exec.Command("git", "worktree", "list", "--porcelain")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	blocks := strings.Split(string(output), "\n\n")
+	targetRef := "refs/heads/" + branchName
+
+	for _, block := range blocks {
+		lines := strings.Split(block, "\n")
+		var path string
+		var branch string
+		for _, line := range lines {
+			if strings.HasPrefix(line, "worktree ") {
+				path = strings.TrimPrefix(line, "worktree ")
+				if strings.HasPrefix(path, "\"") {
+					if unquoted, err := strconv.Unquote(path); err == nil {
+						path = unquoted
+					}
+				}
+			} else if strings.HasPrefix(line, "branch ") {
+				branch = strings.TrimPrefix(line, "branch ")
+			}
+		}
+		if branch == targetRef {
+			return path, nil
+		}
+	}
+	return "", nil
 }

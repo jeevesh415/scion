@@ -8,7 +8,12 @@ This document defines the core concepts and terminology used in Scion.
 An **Agent** is an isolated container running an LLM-driven task. It acts as an independent worker with its own identity, credentials, and workspace. An agent is the fundamental unit of execution in Scion.
 
 ### Grove
-A **Grove** (or **Group**) is a project workspace where agents live. It corresponds to a `.scion` directory on the filesystem. It can exist at the project level (generaly located at the root of a git repository), or globally in the users home folder.
+A **Grove** (or **Group**) is a project workspace where agents live. It corresponds to a `.scion` directory on the filesystem. It can exist at the project level (generally located at the root of a git repository), or globally in the users home folder.
+
+### Profile
+A **Profile** defines a complete execution environment by binding a specific **Runtime** to a set of behavior flags (like `tmux` support) and **Harness** configuration overrides.
+- Profiles allow you to switch between different environments (e.g., "Local Docker", "Production Kubernetes") without modifying agent templates.
+- They are defined in the global or grove `settings.json`.
 
 ### Harness
 A **Harness** adapts a specific underlying LLM tool or agent software (like Gemini CLI or Claude Code) into the Scion ecosystem.

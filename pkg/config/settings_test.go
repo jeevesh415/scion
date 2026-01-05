@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ptone/scion-agent/pkg/api"
 )
 
 func TestLoadSettings(t *testing.T) {
@@ -342,6 +344,94 @@ func TestMergeSettingsAuthSelectedType(t *testing.T) {
 
 	if base.Harnesses["gemini"].AuthSelectedType != "vertex-ai" {
 		t.Errorf("expected AuthSelectedType to be vertex-ai, got %s", base.Harnesses["gemini"].AuthSelectedType)
+	}
+}
+
+func TestRuntimeEnvMerging(t *testing.T) {
+	s := &Settings{
+		Runtimes: map[string]RuntimeConfig{
+			"docker": {
+				Env: map[string]string{
+					"R1": "V1",
+					"R2": "V2",
+				},
+			},
+		},
+		Profiles: map[string]ProfileConfig{
+			"dev": {
+				Runtime: "docker",
+				Env: map[string]string{
+					"R2": "P2", // Overrides runtime
+					"P1": "PV1",
+				},
+			},
+		},
+	}
+
+	r, _, err := s.ResolveRuntime("dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := map[string]string{
+		"R1": "V1",
+		"R2": "P2",
+		"P1": "PV1",
+	}
+
+	if len(r.Env) != len(expected) {
+		t.Errorf("expected %d env vars, got %d", len(expected), len(r.Env))
+	}
+
+	for k, v := range expected {
+		if r.Env[k] != v {
+			t.Errorf("expected %s=%s, got %s", k, v, r.Env[k])
+		}
+	}
+}
+
+func TestVolumeMerging(t *testing.T) {
+	s := &Settings{
+		Harnesses: map[string]HarnessConfig{
+			"gemini": {
+				Volumes: []api.VolumeMount{
+					{Source: "/host/1", Target: "/container/1"},
+				},
+			},
+		},
+		Profiles: map[string]ProfileConfig{
+			"dev": {
+				Volumes: []api.VolumeMount{
+					{Source: "/host/2", Target: "/container/2"},
+				},
+				HarnessOverrides: map[string]HarnessOverride{
+					"gemini": {
+						Volumes: []api.VolumeMount{
+							{Source: "/host/3", Target: "/container/3"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	h, err := s.ResolveHarness("dev", "gemini")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(h.Volumes) != 3 {
+		t.Errorf("expected 3 volumes, got %d", len(h.Volumes))
+	}
+
+	// Check for existence of all expected volumes
+	found := make(map[string]bool)
+	for _, v := range h.Volumes {
+		found[v.Source] = true
+	}
+
+	if !found["/host/1"] || !found["/host/2"] || !found["/host/3"] {
+		t.Errorf("missing expected volumes: got %v", h.Volumes)
 	}
 }
 

@@ -10,10 +10,11 @@ import (
 )
 
 type RuntimeConfig struct {
-	Host      string `json:"host,omitempty"`
-	Context   string `json:"context,omitempty"`
-	Namespace string `json:"namespace,omitempty"`
-	Tmux      *bool  `json:"tmux,omitempty"`
+	Host      string            `json:"host,omitempty"`
+	Context   string            `json:"context,omitempty"`
+	Namespace string            `json:"namespace,omitempty"`
+	Tmux      *bool             `json:"tmux,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
 }
 
 type HarnessConfig struct {
@@ -60,6 +61,12 @@ func (s *Settings) ResolveRuntime(profileName string) (RuntimeConfig, string, er
 	if !ok {
 		return RuntimeConfig{}, "", fmt.Errorf("runtime %q not found for profile %q", profile.Runtime, profileName)
 	}
+
+	// Merge profile-level env into runtime config
+	if profile.Env != nil {
+		runtime.Env = mergeMaps(runtime.Env, profile.Env)
+	}
+
 	return runtime, profile.Runtime, nil
 }
 
@@ -212,6 +219,9 @@ func MergeSettings(base *Settings, data []byte) error {
 			}
 			if v.Tmux != nil {
 				existing.Tmux = v.Tmux
+			}
+			if v.Env != nil {
+				existing.Env = mergeMaps(existing.Env, v.Env)
 			}
 			base.Runtimes[k] = existing
 		}
