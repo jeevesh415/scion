@@ -29,6 +29,12 @@ type Client interface {
 	// Users returns the user operations interface.
 	Users() UserService
 
+	// Env returns the environment variable operations interface.
+	Env() EnvService
+
+	// Secrets returns the secret operations interface.
+	Secrets() SecretService
+
 	// Auth returns the authentication operations interface.
 	Auth() AuthService
 
@@ -40,12 +46,14 @@ type Client interface {
 type client struct {
 	transport *apiclient.Transport
 
-	agents       *agentService
-	groves       *groveService
-	runtimeHosts *runtimeHostService
-	templates    *templateService
-	users        *userService
-	authService  *authService
+	agents        *agentService
+	groves        *groveService
+	runtimeHosts  *runtimeHostService
+	templates     *templateService
+	users         *userService
+	env           *envService
+	secrets       *secretService
+	authService   *authService
 }
 
 // New creates a new Hub API client.
@@ -64,6 +72,8 @@ func New(baseURL string, opts ...Option) (Client, error) {
 	c.runtimeHosts = &runtimeHostService{c: c}
 	c.templates = &templateService{c: c}
 	c.users = &userService{c: c}
+	c.env = &envService{c: c}
+	c.secrets = &secretService{c: c}
 	c.authService = &authService{c: c}
 
 	return c, nil
@@ -92,6 +102,16 @@ func (c *client) Templates() TemplateService {
 // Users returns the user operations interface.
 func (c *client) Users() UserService {
 	return c.users
+}
+
+// Env returns the environment variable operations interface.
+func (c *client) Env() EnvService {
+	return c.env
+}
+
+// Secrets returns the secret operations interface.
+func (c *client) Secrets() SecretService {
+	return c.secrets
 }
 
 // Auth returns the authentication operations interface.

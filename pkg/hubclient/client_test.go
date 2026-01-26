@@ -32,6 +32,12 @@ func TestNew(t *testing.T) {
 	if client.Users() == nil {
 		t.Error("expected non-nil users service")
 	}
+	if client.Env() == nil {
+		t.Error("expected non-nil env service")
+	}
+	if client.Secrets() == nil {
+		t.Error("expected non-nil secrets service")
+	}
 	if client.Auth() == nil {
 		t.Error("expected non-nil auth service")
 	}
@@ -304,6 +310,283 @@ func TestWithAPIKey(t *testing.T) {
 
 	client, _ := New(server.URL, WithAPIKey("my-api-key"))
 	_, err := client.Health(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestEnvList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/env" {
+			t.Errorf("expected path /api/v1/env, got %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("scope") != "grove" {
+			t.Errorf("expected scope=grove, got %s", r.URL.Query().Get("scope"))
+		}
+		if r.URL.Query().Get("scopeId") != "grove-123" {
+			t.Errorf("expected scopeId=grove-123, got %s", r.URL.Query().Get("scopeId"))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ListEnvResponse{
+			EnvVars: []EnvVar{
+				{ID: "1", Key: "API_URL", Value: "https://api.example.com", Scope: "grove", ScopeID: "grove-123"},
+				{ID: "2", Key: "LOG_LEVEL", Value: "debug", Scope: "grove", ScopeID: "grove-123"},
+			},
+			Scope:   "grove",
+			ScopeID: "grove-123",
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	resp, err := client.Env().List(context.Background(), &ListEnvOptions{
+		Scope:   "grove",
+		ScopeID: "grove-123",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.EnvVars) != 2 {
+		t.Errorf("expected 2 env vars, got %d", len(resp.EnvVars))
+	}
+	if resp.EnvVars[0].Key != "API_URL" {
+		t.Errorf("expected key 'API_URL', got %q", resp.EnvVars[0].Key)
+	}
+}
+
+func TestEnvGet(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/env/API_URL" {
+			t.Errorf("expected path /api/v1/env/API_URL, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(EnvVar{
+			ID:      "uuid-123",
+			Key:     "API_URL",
+			Value:   "https://api.example.com",
+			Scope:   "user",
+			Created: time.Now(),
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	envVar, err := client.Env().Get(context.Background(), "API_URL", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if envVar.Key != "API_URL" {
+		t.Errorf("expected key 'API_URL', got %q", envVar.Key)
+	}
+	if envVar.Value != "https://api.example.com" {
+		t.Errorf("expected value 'https://api.example.com', got %q", envVar.Value)
+	}
+}
+
+func TestEnvSet(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("expected PUT, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/env/LOG_LEVEL" {
+			t.Errorf("expected path /api/v1/env/LOG_LEVEL, got %s", r.URL.Path)
+		}
+
+		var req SetEnvRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("failed to decode request: %v", err)
+		}
+		if req.Value != "debug" {
+			t.Errorf("expected value 'debug', got %q", req.Value)
+		}
+		if req.Scope != "grove" {
+			t.Errorf("expected scope 'grove', got %q", req.Scope)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SetEnvResponse{
+			EnvVar: &EnvVar{
+				ID:      "uuid-new",
+				Key:     "LOG_LEVEL",
+				Value:   "debug",
+				Scope:   "grove",
+				ScopeID: "grove-123",
+			},
+			Created: true,
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	resp, err := client.Env().Set(context.Background(), "LOG_LEVEL", &SetEnvRequest{
+		Value:   "debug",
+		Scope:   "grove",
+		ScopeID: "grove-123",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Created {
+		t.Error("expected created=true")
+	}
+	if resp.EnvVar.Key != "LOG_LEVEL" {
+		t.Errorf("expected key 'LOG_LEVEL', got %q", resp.EnvVar.Key)
+	}
+}
+
+func TestEnvDelete(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/env/OLD_VAR" {
+			t.Errorf("expected path /api/v1/env/OLD_VAR, got %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("scope") != "user" {
+			t.Errorf("expected scope=user, got %s", r.URL.Query().Get("scope"))
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	err := client.Env().Delete(context.Background(), "OLD_VAR", &EnvScopeOptions{Scope: "user"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSecretList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/secrets" {
+			t.Errorf("expected path /api/v1/secrets, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ListSecretResponse{
+			Secrets: []Secret{
+				{ID: "1", Key: "API_KEY", Scope: "user", Version: 1},
+				{ID: "2", Key: "DATABASE_PASSWORD", Scope: "user", Version: 3},
+			},
+			Scope: "user",
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	resp, err := client.Secrets().List(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Secrets) != 2 {
+		t.Errorf("expected 2 secrets, got %d", len(resp.Secrets))
+	}
+	if resp.Secrets[0].Key != "API_KEY" {
+		t.Errorf("expected key 'API_KEY', got %q", resp.Secrets[0].Key)
+	}
+	// Value should NOT be present (write-only)
+}
+
+func TestSecretGet(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/secrets/API_KEY" {
+			t.Errorf("expected path /api/v1/secrets/API_KEY, got %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(Secret{
+			ID:      "uuid-123",
+			Key:     "API_KEY",
+			Scope:   "user",
+			Version: 2,
+			Created: time.Now(),
+			Updated: time.Now(),
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	secret, err := client.Secrets().Get(context.Background(), "API_KEY", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if secret.Key != "API_KEY" {
+		t.Errorf("expected key 'API_KEY', got %q", secret.Key)
+	}
+	if secret.Version != 2 {
+		t.Errorf("expected version 2, got %d", secret.Version)
+	}
+}
+
+func TestSecretSet(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("expected PUT, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/secrets/NEW_SECRET" {
+			t.Errorf("expected path /api/v1/secrets/NEW_SECRET, got %s", r.URL.Path)
+		}
+
+		var req SetSecretRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("failed to decode request: %v", err)
+		}
+		if req.Value != "secret-value" {
+			t.Errorf("expected value 'secret-value', got %q", req.Value)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SetSecretResponse{
+			Secret: &Secret{
+				ID:      "uuid-new",
+				Key:     "NEW_SECRET",
+				Scope:   "user",
+				Version: 1,
+			},
+			Created: true,
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	resp, err := client.Secrets().Set(context.Background(), "NEW_SECRET", &SetSecretRequest{
+		Value: "secret-value",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Created {
+		t.Error("expected created=true")
+	}
+	if resp.Secret.Key != "NEW_SECRET" {
+		t.Errorf("expected key 'NEW_SECRET', got %q", resp.Secret.Key)
+	}
+}
+
+func TestSecretDelete(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/secrets/OLD_SECRET" {
+			t.Errorf("expected path /api/v1/secrets/OLD_SECRET, got %s", r.URL.Path)
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	err := client.Secrets().Delete(context.Background(), "OLD_SECRET", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

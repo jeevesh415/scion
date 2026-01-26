@@ -211,3 +211,32 @@ type UserPreferences struct {
 	DefaultProfile  string `json:"defaultProfile,omitempty"`
 	Theme           string `json:"theme,omitempty"`
 }
+
+// EnvVar represents an environment variable from the Hub API.
+type EnvVar struct {
+	ID          string    `json:"id"`
+	Key         string    `json:"key"`
+	Value       string    `json:"value"`
+	Scope       string    `json:"scope"`
+	ScopeID     string    `json:"scopeId"`
+	Description string    `json:"description,omitempty"`
+	Sensitive   bool      `json:"sensitive,omitempty"`
+	Created     time.Time `json:"created"`
+	Updated     time.Time `json:"updated"`
+	CreatedBy   string    `json:"createdBy,omitempty"`
+}
+
+// Secret represents secret metadata from the Hub API.
+// Note: Secret values are never returned by the API.
+type Secret struct {
+	ID          string    `json:"id"`
+	Key         string    `json:"key"`
+	Scope       string    `json:"scope"`
+	ScopeID     string    `json:"scopeId"`
+	Description string    `json:"description,omitempty"`
+	Version     int       `json:"version"`
+	Created     time.Time `json:"created"`
+	Updated     time.Time `json:"updated"`
+	CreatedBy   string    `json:"createdBy,omitempty"`
+	UpdatedBy   string    `json:"updatedBy,omitempty"`
+}
