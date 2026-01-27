@@ -1,7 +1,7 @@
 # Hosted Template Management Design
 
 ## Status
-**In Progress** (Phase 1 Complete)
+**In Progress** (Phase 2 Complete)
 
 ## 1. Overview
 
@@ -994,11 +994,11 @@ Template operations will emit events:
 - [x] Storage interface abstraction (bucket provider)
 - [x] GCS storage implementation
 
-### Phase 2: Upload Flow
-- [ ] Signed URL generation
-- [ ] File upload with verification
-- [ ] Manifest computation and validation
-- [ ] CLI `template sync` and `template push`
+### Phase 2: Upload Flow ✓
+- [x] Signed URL generation
+- [x] File upload with verification
+- [x] Manifest computation and validation
+- [x] CLI `template sync`, `template push`, and `template pull`
 
 ### Phase 3: Runtime Integration
 - [ ] Template cache on Runtime Host
@@ -1041,172 +1041,234 @@ The following questions have been resolved:
 
 ---
 
-## Appendix A: Phase 1 QA Walkthrough
+## Appendix A: Phase 2 QA Walkthrough
 
-This section provides minimal verification steps for the Phase 1 template implementation.
+This section provides verification steps for the Phase 2 template upload flow implementation.
 
 ### A.1. Prerequisites
 
 - Go 1.21+ installed
+- Hub server running with storage configured (GCS or local)
+- A grove registered with the Hub
 - `curl` and `jq` available
 
 ### A.2. Build and Start the Hub Server
 
 ```bash
-# Build from the project root (where go.mod is located)
+# Build from the project root
 go build -buildvcs=false -o scion ./cmd/scion
 
-# Start Hub API server with dev authentication (default port: 9810)
-./scion server start --enable-hub --dev-auth
+# Start Hub with local storage for testing
+./scion server start --enable-hub --dev-auth --storage-dir /tmp/scion-storage
 
-# The dev-auth token is written to ~/.scion/dev-token
-# Read it for use in API requests:
+# Or with GCS storage (requires credentials)
+# ./scion server start --enable-hub --dev-auth --storage-bucket your-bucket-name
+
 TOKEN=$(cat ~/.scion/dev-token)
-echo "Dev token: $TOKEN"
 ```
 
-### A.3. Quick Verification Script
+### A.3. CLI Template Commands Walkthrough
 
-Run this script to verify all Phase 1 endpoints work correctly:
+This walkthrough tests the new `template sync`, `template push`, and `template pull` commands.
 
 ```bash
 #!/bin/bash
 set -e
 
+# Ensure Hub is enabled for the grove
+cd /path/to/your/grove
+scion hub enable
+
+echo "=== Phase 2 Template Upload Walkthrough ==="
+
+# 1. Create a test template directory
+echo -e "\n[1] Creating test template..."
+mkdir -p /tmp/test-template/home/.claude
+cat > /tmp/test-template/scion-agent.yaml << 'EOF'
+harness: claude
+image: scion-claude:latest
+EOF
+
+cat > /tmp/test-template/home/.bashrc << 'EOF'
+# Custom bashrc for test template
+export PS1="[\u@\h \W]\$ "
+alias ll='ls -la'
+EOF
+
+cat > /tmp/test-template/home/.claude/CLAUDE.md << 'EOF'
+# Test Template Instructions
+This is a test template created for Phase 2 QA.
+EOF
+
+echo "Created template files in /tmp/test-template/"
+ls -la /tmp/test-template/
+
+# 2. Sync template to Hub (creates and uploads)
+echo -e "\n[2] Syncing template to Hub..."
+scion template sync test-phase2 \
+  --from /tmp/test-template \
+  --harness claude \
+  --scope grove
+
+# 3. List templates to verify creation
+echo -e "\n[3] Listing templates..."
+scion template list
+
+# 4. Modify local template and push changes
+echo -e "\n[4] Modifying and pushing template..."
+echo "# Updated content" >> /tmp/test-template/home/.claude/CLAUDE.md
+scion template push test-phase2 --from /tmp/test-template
+
+# 5. Pull template to a new location
+echo -e "\n[5] Pulling template..."
+rm -rf /tmp/test-template-pulled
+scion template pull test-phase2 --to /tmp/test-template-pulled
+
+# 6. Verify pulled content
+echo -e "\n[6] Verifying pulled content..."
+ls -la /tmp/test-template-pulled/
+cat /tmp/test-template-pulled/home/.claude/CLAUDE.md
+
+# 7. Compare original and pulled
+echo -e "\n[7] Comparing files..."
+diff /tmp/test-template/scion-agent.yaml /tmp/test-template-pulled/scion-agent.yaml && \
+  echo "scion-agent.yaml matches" || echo "MISMATCH!"
+diff /tmp/test-template/home/.bashrc /tmp/test-template-pulled/home/.bashrc && \
+  echo "home/.bashrc matches" || echo "MISMATCH!"
+
+echo -e "\n=== Walkthrough Complete ==="
+```
+
+### A.4. API-Level Verification
+
+For testing the underlying APIs directly:
+
+```bash
+TOKEN=$(cat ~/.scion/dev-token)
+AUTH="Authorization: Bearer $TOKEN"
 BASE_URL="http://localhost:9810"
-TOKEN=$(cat ~/.scion/dev-token)
-AUTH="Authorization: Bearer $TOKEN"
 
-echo "=== Phase 1 Template Verification ==="
-
-# 1. Health check (no auth required)
-echo -e "\n[1] Health check..."
-curl -sf "$BASE_URL/healthz" > /dev/null && echo "OK" || echo "FAIL"
-
-# 2. Create a template
-echo -e "\n[2] Create template..."
-RESPONSE=$(curl -sf -X POST "$BASE_URL/api/v1/templates" \
+# 1. Create template with file list (gets upload URLs)
+echo "Creating template with files..."
+RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/templates" \
   -H "$AUTH" \
   -H "Content-Type: application/json" \
-  -d '{"name": "test-claude", "harness": "claude", "scope": "global"}')
+  -d '{
+    "name": "api-test-template",
+    "harness": "claude",
+    "scope": "global",
+    "files": [
+      {"path": "scion-agent.yaml", "size": 50},
+      {"path": "home/.bashrc", "size": 100}
+    ]
+  }')
+echo "$RESPONSE" | jq '{template: .template.id, uploadUrls: [.uploadUrls[].path]}'
+
 TEMPLATE_ID=$(echo "$RESPONSE" | jq -r '.template.id')
-echo "Created: $TEMPLATE_ID"
 
-# 3. Get template
-echo -e "\n[3] Get template..."
-curl -sf -H "$AUTH" "$BASE_URL/api/v1/templates/$TEMPLATE_ID" | jq '{id, name, scope, storagePath}'
-
-# 4. List templates
-echo -e "\n[4] List templates..."
-COUNT=$(curl -sf -H "$AUTH" "$BASE_URL/api/v1/templates" | jq '.templates | length')
-echo "Template count: $COUNT"
-
-# 5. Update template (PATCH)
-echo -e "\n[5] Patch template..."
-curl -sf -X PATCH "$BASE_URL/api/v1/templates/$TEMPLATE_ID" \
+# 2. Request additional upload URLs
+echo -e "\nRequesting upload URLs..."
+curl -s -X POST "$BASE_URL/api/v1/templates/$TEMPLATE_ID/upload" \
   -H "$AUTH" \
   -H "Content-Type: application/json" \
-  -d '{"displayName": "Test Claude Updated"}' | jq '{displayName}'
+  -d '{"files": [{"path": "home/.claude/CLAUDE.md", "size": 200}]}' | jq
 
-# 6. Delete template
-echo -e "\n[6] Delete template..."
-HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" -X DELETE -H "$AUTH" "$BASE_URL/api/v1/templates/$TEMPLATE_ID")
-[ "$HTTP_CODE" = "204" ] && echo "Deleted (204)" || echo "FAIL: $HTTP_CODE"
-
-# 7. Verify not found
-echo -e "\n[7] Verify deleted..."
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "$AUTH" "$BASE_URL/api/v1/templates/$TEMPLATE_ID")
-[ "$HTTP_CODE" = "404" ] && echo "Not found (404)" || echo "FAIL: $HTTP_CODE"
-
-# 8. Test validation error (expect 400 with "harness is required")
-echo -e "\n[8] Test validation..."
-ERROR=$(curl -s -X POST "$BASE_URL/api/v1/templates" \
+# 3. Finalize with manifest
+echo -e "\nFinalizing template..."
+curl -s -X POST "$BASE_URL/api/v1/templates/$TEMPLATE_ID/finalize" \
   -H "$AUTH" \
   -H "Content-Type: application/json" \
-  -d '{"name": "missing-harness"}')
-echo "$ERROR" | grep -q "harness" && echo "Validation works" || echo "FAIL: $ERROR"
+  -d '{
+    "manifest": {
+      "version": "1.0",
+      "files": [
+        {"path": "scion-agent.yaml", "size": 50, "hash": "sha256:abc123", "mode": "0644"},
+        {"path": "home/.bashrc", "size": 100, "hash": "sha256:def456", "mode": "0644"}
+      ]
+    }
+  }' | jq '{id, status, contentHash}'
 
-echo -e "\n=== Verification Complete ==="
+# 4. Request download URLs
+echo -e "\nGetting download URLs..."
+curl -s "$BASE_URL/api/v1/templates/$TEMPLATE_ID/download" \
+  -H "$AUTH" | jq '{files: [.files[].path], expires}'
+
+# 5. Cleanup
+echo -e "\nCleaning up..."
+curl -s -X DELETE "$BASE_URL/api/v1/templates/$TEMPLATE_ID?deleteFiles=true" \
+  -H "$AUTH" -w "HTTP %{http_code}\n"
 ```
 
-### A.4. Manual Testing Commands
+### A.5. Manifest Computation Verification
 
-First, set up the auth header:
-```bash
-TOKEN=$(cat ~/.scion/dev-token)
-AUTH="Authorization: Bearer $TOKEN"
-```
-
-**Create template:**
-```bash
-curl -s -X POST http://localhost:9810/api/v1/templates \
-  -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"name": "my-claude", "harness": "claude", "scope": "global"}' | jq
-```
-
-**List templates:**
-```bash
-curl -s -H "$AUTH" "http://localhost:9810/api/v1/templates" | jq '.templates[] | {id, name, scope}'
-```
-
-**Get template:**
-```bash
-curl -s -H "$AUTH" "http://localhost:9810/api/v1/templates/$ID" | jq
-```
-
-**Update template:**
-```bash
-curl -s -X PATCH "http://localhost:9810/api/v1/templates/$ID" \
-  -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"displayName": "My Custom Claude"}' | jq
-```
-
-**Delete template:**
-```bash
-curl -s -X DELETE -H "$AUTH" "http://localhost:9810/api/v1/templates/$ID" -w "HTTP %{http_code}\n"
-```
-
-**Filter by scope/harness:**
-```bash
-curl -s -H "$AUTH" "http://localhost:9810/api/v1/templates?scope=global&harness=claude" | jq
-```
-
-### A.5. Verify Storage Paths
-
-Templates should generate correct storage paths based on scope:
-
-| Scope | Expected Path Format |
-|-------|----------------------|
-| global | `templates/global/{slug}` |
-| grove | `templates/groves/{scopeId}/{slug}` |
-| user | `templates/users/{scopeId}/{slug}` |
-
-Verify by checking the `storagePath` field in create/get responses.
-
-### A.6. Cleanup
+Test that file hashing works correctly:
 
 ```bash
-# Stop server with Ctrl+C
+# Create test files with known content
+mkdir -p /tmp/manifest-test
+echo "test content" > /tmp/manifest-test/file1.txt
+echo "more content" > /tmp/manifest-test/file2.txt
 
-# Remove test database (if needed)
-rm ~/.scion/hub.db
+# The CLI will compute SHA-256 hashes when syncing
+# You can verify manually:
+sha256sum /tmp/manifest-test/file1.txt
+# Expected format in manifest: "sha256:<hash>"
 ```
 
-### A.7. Phase 1 Checklist
+### A.6. Error Handling Verification
+
+Test error conditions:
+
+```bash
+# 1. Sync without Hub enabled (should fail)
+scion hub disable
+scion template sync test --from /tmp/test-template --harness claude
+# Expected: "Hub integration is not enabled. Use 'scion hub enable' first"
+
+# 2. Push to non-existent template (should fail)
+scion hub enable
+scion template push nonexistent-template
+# Expected: "template 'nonexistent-template' not found in Hub"
+
+# 3. Sync without required flags (should fail)
+scion template sync test
+# Expected: "--from flag is required"
+
+scion template sync test --from /tmp/test-template
+# Expected: "--harness flag is required"
+
+# 4. Sync from non-existent path (should fail)
+scion template sync test --from /nonexistent --harness claude
+# Expected: "template path not found"
+```
+
+### A.7. Phase 2 Checklist
 
 | Component | Status |
 |-----------|--------|
-| Template model in database | ✓ Implemented |
-| POST /templates (create) | ✓ Implemented |
-| GET /templates (list with filters) | ✓ Implemented |
-| GET /templates/{id} | ✓ Implemented |
-| PUT /templates/{id} (full update) | ✓ Implemented |
-| PATCH /templates/{id} (partial update) | ✓ Implemented |
-| DELETE /templates/{id} | ✓ Implemented |
-| POST /templates/{id}/upload | ✓ Implemented |
-| POST /templates/{id}/finalize | ✓ Implemented |
-| GET /templates/{id}/download | ✓ Implemented |
-| POST /templates/{id}/clone | ✓ Implemented |
-| Storage interface abstraction | ✓ Implemented |
-| GCS storage provider | ✓ Implemented |
-| Local storage provider | ✓ Implemented |
+| hubclient: RequestUploadURLs method | ✓ Implemented |
+| hubclient: Finalize method | ✓ Implemented |
+| hubclient: RequestDownloadURLs method | ✓ Implemented |
+| hubclient: UploadFile method | ✓ Implemented |
+| hubclient: DownloadFile method | ✓ Implemented |
+| ManifestBuilder for computing file hashes | ✓ Implemented |
+| CollectFiles utility | ✓ Implemented |
+| ComputeContentHash function | ✓ Implemented |
+| CLI: `scion template sync` | ✓ Implemented |
+| CLI: `scion template push` | ✓ Implemented |
+| CLI: `scion template pull` | ✓ Implemented |
+| CLI: `template` singular alias | ✓ Implemented |
+| File upload to signed URLs | ✓ Implemented |
+| File download from signed URLs | ✓ Implemented |
+
+### A.8. Cleanup
+
+```bash
+# Remove test directories
+rm -rf /tmp/test-template /tmp/test-template-pulled /tmp/manifest-test
+
+# Stop server with Ctrl+C
+
+# Remove test database and storage (if needed)
+rm -rf ~/.scion/hub.db /tmp/scion-storage
+```
