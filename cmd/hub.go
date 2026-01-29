@@ -424,6 +424,12 @@ func runHubRegister(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Created new grove: %s (ID: %s)\n", resp.Grove.Name, resp.Grove.ID)
 	} else {
 		fmt.Printf("Linked to existing grove: %s (ID: %s)\n", resp.Grove.Name, resp.Grove.ID)
+		// Update local grove_id to match the hub grove's ID
+		if resp.Grove.ID != groveID {
+			if err := config.UpdateSetting(resolvedPath, "grove_id", resp.Grove.ID, isGlobal); err != nil {
+				fmt.Printf("Warning: failed to update local grove_id: %v\n", err)
+			}
+		}
 	}
 	fmt.Printf("Host registered: %s (ID: %s)\n", resp.Host.Name, resp.Host.ID)
 

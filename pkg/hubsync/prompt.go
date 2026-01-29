@@ -91,3 +91,77 @@ func ShowRegistrationPrompt(groveName string, autoConfirm bool) bool {
 func ShowInitRegistrationPrompt(autoConfirm bool) bool {
 	return ConfirmAction("Grove initialized. Register with Hub?", true, autoConfirm)
 }
+
+// GroveChoice represents the user's choice when matching groves exist.
+type GroveChoice int
+
+const (
+	// GroveChoiceCancel means the user cancelled the operation.
+	GroveChoiceCancel GroveChoice = iota
+	// GroveChoiceLink means the user chose to link to an existing grove.
+	GroveChoiceLink
+	// GroveChoiceRegisterNew means the user chose to register a new grove.
+	GroveChoiceRegisterNew
+)
+
+// GroveMatch holds information about a matching grove for display.
+type GroveMatch struct {
+	ID        string
+	Name      string
+	GitRemote string
+}
+
+// ShowMatchingGrovesPrompt displays matching groves and asks the user to choose.
+// Returns the choice and the selected grove ID if linking.
+func ShowMatchingGrovesPrompt(groveName string, matches []GroveMatch, autoConfirm bool) (GroveChoice, string) {
+	fmt.Println()
+	fmt.Printf("Found %d existing grove(s) with the name '%s' on the Hub:\n", len(matches), groveName)
+	fmt.Println()
+
+	for i, m := range matches {
+		if m.GitRemote != "" {
+			fmt.Printf("  [%d] %s (ID: %s, remote: %s)\n", i+1, m.Name, m.ID, m.GitRemote)
+		} else {
+			fmt.Printf("  [%d] %s (ID: %s)\n", i+1, m.Name, m.ID)
+		}
+	}
+	fmt.Printf("  [%d] Register as a new grove (duplicate name)\n", len(matches)+1)
+	fmt.Println()
+
+	if autoConfirm {
+		// Auto-confirm defaults to linking to the first match
+		fmt.Printf("Auto-linking to: %s (ID: %s)\n", matches[0].Name, matches[0].ID)
+		return GroveChoiceLink, matches[0].ID
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("Enter choice (or 'c' to cancel): ")
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return GroveChoiceCancel, ""
+		}
+
+		input = strings.TrimSpace(strings.ToLower(input))
+		if input == "c" || input == "cancel" {
+			return GroveChoiceCancel, ""
+		}
+
+		choice := 0
+		if _, err := fmt.Sscanf(input, "%d", &choice); err != nil {
+			fmt.Println("Invalid choice. Please enter a number.")
+			continue
+		}
+
+		if choice < 1 || choice > len(matches)+1 {
+			fmt.Printf("Invalid choice. Please enter 1-%d.\n", len(matches)+1)
+			continue
+		}
+
+		if choice == len(matches)+1 {
+			return GroveChoiceRegisterNew, ""
+		}
+
+		return GroveChoiceLink, matches[choice-1].ID
+	}
+}

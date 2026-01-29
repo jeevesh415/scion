@@ -213,23 +213,58 @@ func EnsureHubReady(grovePath string, opts EnsureHubReadyOptions) (*HubContext, 
 	if !registered {
 		// Get grove name for the prompt
 		groveName := getGroveName(resolvedPath, isGlobal)
-		if ShowRegistrationPrompt(groveName, opts.AutoConfirm) {
-			if err := registerGrove(context.Background(), hubCtx, groveName, isGlobal); err != nil {
-				return nil, wrapHubError(fmt.Errorf("failed to register grove: %w", err))
-			}
-			// Reload settings to get updated host ID
-			settings, err = config.LoadSettings(resolvedPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to reload settings: %w", err)
-			}
-			hubCtx.Settings = settings
-			if settings.Hub != nil {
-				hubCtx.HostID = settings.Hub.HostID
+
+		// Check for existing groves with the same name
+		matches, err := findMatchingGroves(ctx, hubCtx, groveName)
+		if err != nil {
+			debugf("Warning: failed to search for matching groves: %v", err)
+			// Continue with registration - the hub will handle matching
+		}
+
+		if len(matches) > 0 {
+			// Found matching groves - ask user what to do
+			choice, selectedID := ShowMatchingGrovesPrompt(groveName, matches, opts.AutoConfirm)
+			switch choice {
+			case GroveChoiceCancel:
+				return nil, fmt.Errorf("registration cancelled")
+			case GroveChoiceLink:
+				// Update local grove_id to the selected grove
+				if err := config.UpdateSetting(resolvedPath, "grove_id", selectedID, isGlobal); err != nil {
+					return nil, fmt.Errorf("failed to update local grove_id: %w", err)
+				}
+				hubCtx.GroveID = selectedID
+				debugf("Updated local grove_id to: %s", selectedID)
+			case GroveChoiceRegisterNew:
+				// Generate a new grove ID to avoid linking to existing grove
+				newID := config.GenerateGroveIDForDir(filepath.Dir(resolvedPath))
+				if err := config.UpdateSetting(resolvedPath, "grove_id", newID, isGlobal); err != nil {
+					return nil, fmt.Errorf("failed to update local grove_id: %w", err)
+				}
+				hubCtx.GroveID = newID
+				debugf("Generated new grove_id: %s", newID)
 			}
 		} else {
-			return nil, fmt.Errorf("grove must be registered with Hub to perform this operation\n\n" +
-				"Register the grove: scion hub register\n" +
-				"Or use local-only mode: scion --no-hub <command>")
+			// No matching groves - ask for confirmation
+			if !ShowRegistrationPrompt(groveName, opts.AutoConfirm) {
+				return nil, fmt.Errorf("grove must be registered with Hub to perform this operation\n\n" +
+					"Register the grove: scion hub register\n" +
+					"Or use local-only mode: scion --no-hub <command>")
+			}
+		}
+
+		// Register the grove
+		if err := registerGrove(context.Background(), hubCtx, groveName, isGlobal); err != nil {
+			return nil, wrapHubError(fmt.Errorf("failed to register grove: %w", err))
+		}
+		// Reload settings to get updated host ID and grove_id
+		settings, err = config.LoadSettings(resolvedPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reload settings: %w", err)
+		}
+		hubCtx.Settings = settings
+		hubCtx.GroveID = settings.GroveID
+		if settings.Hub != nil {
+			hubCtx.HostID = settings.Hub.HostID
 		}
 	}
 
@@ -437,6 +472,30 @@ func isGroveRegistered(ctx context.Context, hubCtx *HubContext) (bool, error) {
 	return true, nil
 }
 
+// findMatchingGroves finds groves with the same name on the Hub.
+func findMatchingGroves(ctx context.Context, hubCtx *HubContext, groveName string) ([]GroveMatch, error) {
+	ctxTimeout, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	resp, err := hubCtx.Client.Groves().List(ctxTimeout, &hubclient.ListGrovesOptions{
+		Name: groveName,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to search for matching groves: %w", err)
+	}
+
+	var matches []GroveMatch
+	for _, g := range resp.Groves {
+		matches = append(matches, GroveMatch{
+			ID:        g.ID,
+			Name:      g.Name,
+			GitRemote: g.GitRemote,
+		})
+	}
+
+	return matches, nil
+}
+
 // registerGrove registers the grove with the Hub.
 func registerGrove(ctx context.Context, hubCtx *HubContext, groveName string, isGlobal bool) error {
 	ctxTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -487,6 +546,14 @@ func registerGrove(ctx context.Context, hubCtx *HubContext, groveName string, is
 		fmt.Printf("Created new grove: %s (ID: %s)\n", resp.Grove.Name, resp.Grove.ID)
 	} else {
 		fmt.Printf("Linked to existing grove: %s (ID: %s)\n", resp.Grove.Name, resp.Grove.ID)
+		// Update local grove_id to match the hub grove's ID
+		if resp.Grove.ID != hubCtx.GroveID {
+			if err := config.UpdateSetting(hubCtx.GrovePath, "grove_id", resp.Grove.ID, isGlobal); err != nil {
+				fmt.Printf("Warning: failed to update local grove_id: %v\n", err)
+			} else {
+				hubCtx.GroveID = resp.Grove.ID
+			}
+		}
 	}
 	if resp.Host != nil {
 		fmt.Printf("Host registered: %s (ID: %s)\n", resp.Host.Name, resp.Host.ID)

@@ -584,6 +584,7 @@ func (s *Server) listGroves(w http.ResponseWriter, r *http.Request) {
 		Visibility:      query.Get("visibility"),
 		GitRemotePrefix: util.NormalizeGitRemote(query.Get("gitRemote")),
 		HostID:          query.Get("hostId"),
+		Name:            query.Get("name"),
 	}
 
 	limit := 50

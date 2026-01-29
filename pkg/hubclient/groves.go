@@ -60,6 +60,7 @@ type ListGrovesOptions struct {
 	Visibility string // Filter by visibility
 	GitRemote  string // Filter by git remote (exact or prefix)
 	HostID     string // Filter by contributing host
+	Name       string // Filter by exact name (case-insensitive)
 	Labels     map[string]string
 	Page       apiclient.PageOptions
 }
@@ -133,6 +134,9 @@ func (s *groveService) List(ctx context.Context, opts *ListGrovesOptions) (*List
 		}
 		if opts.HostID != "" {
 			query.Set("hostId", opts.HostID)
+		}
+		if opts.Name != "" {
+			query.Set("name", opts.Name)
 		}
 		for k, v := range opts.Labels {
 			query.Add("label", fmt.Sprintf("%s=%s", k, v))

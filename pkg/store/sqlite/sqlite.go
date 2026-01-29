@@ -896,6 +896,10 @@ func (s *SQLiteStore) ListGroves(ctx context.Context, filter store.GroveFilter, 
 		conditions = append(conditions, "id IN (SELECT grove_id FROM grove_contributors WHERE host_id = ?)")
 		args = append(args, filter.HostID)
 	}
+	if filter.Name != "" {
+		conditions = append(conditions, "LOWER(name) = LOWER(?)")
+		args = append(args, filter.Name)
+	}
 
 	whereClause := ""
 	if len(conditions) > 0 {

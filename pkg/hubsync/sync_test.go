@@ -383,3 +383,34 @@ func TestContainsIgnoreCase(t *testing.T) {
 		})
 	}
 }
+
+func TestGroveChoice_Constants(t *testing.T) {
+	// Verify that the choice constants have expected values
+	if GroveChoiceCancel != 0 {
+		t.Errorf("GroveChoiceCancel should be 0, got %d", GroveChoiceCancel)
+	}
+	if GroveChoiceLink != 1 {
+		t.Errorf("GroveChoiceLink should be 1, got %d", GroveChoiceLink)
+	}
+	if GroveChoiceRegisterNew != 2 {
+		t.Errorf("GroveChoiceRegisterNew should be 2, got %d", GroveChoiceRegisterNew)
+	}
+}
+
+func TestGroveMatch_Fields(t *testing.T) {
+	match := GroveMatch{
+		ID:        "test-id",
+		Name:      "test-grove",
+		GitRemote: "github.com/test/repo",
+	}
+
+	if match.ID != "test-id" {
+		t.Errorf("Expected ID 'test-id', got %s", match.ID)
+	}
+	if match.Name != "test-grove" {
+		t.Errorf("Expected Name 'test-grove', got %s", match.Name)
+	}
+	if match.GitRemote != "github.com/test/repo" {
+		t.Errorf("Expected GitRemote 'github.com/test/repo', got %s", match.GitRemote)
+	}
+}

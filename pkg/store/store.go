@@ -143,10 +143,11 @@ type GroveStore interface {
 
 // GroveFilter defines criteria for filtering groves.
 type GroveFilter struct {
-	OwnerID       string
-	Visibility    string
+	OwnerID         string
+	Visibility      string
 	GitRemotePrefix string
-	HostID        string // Filter by contributing host
+	HostID          string // Filter by contributing host
+	Name            string // Filter by exact name (case-insensitive)
 }
 
 // RuntimeHostStore defines runtime host persistence operations.
