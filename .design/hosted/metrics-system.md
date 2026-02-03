@@ -13,7 +13,7 @@ This document defines the metrics and observability architecture for the Hosted 
 
 2. **Cloud-Native Observability Backend**: Raw telemetry data (logs, traces, metrics) is forwarded to a dedicated cloud-based observability platform (e.g., Google Cloud Observability, Datadog, Honeycomb). The Hub does not become a general-purpose metrics or logging backend.
 
-3. **Hub for High-Level Aggregates Only**: The Hub receives lightweight, pre-aggregated session and agent metrics for dashboard display, not raw telemetry streams.
+3. **Hub for High-Level Aggregates Only**: The Hub receives lightweight, pre-aggregated session and agent metrics for dashboard display, not raw telemetry streams. It can also fetch query-based aggregate data or recent logs from the cloud observability backend for presentation layer use.
 
 4. **Configurable Filtering**: Sciontool provides event filtering to control volume, respect privacy settings, and honor debug mode configurations.
 
@@ -168,10 +168,9 @@ Each harness emits events in its native format. Sciontool's dialect parsers tran
 │  │ Dialect     │  │ Dialect     │  │ Dialect     │      │
 │  │             │  │             │  │             │      │
 │  │ Parses:     │  │ Parses:     │  │ Parses:     │      │
-│  │ - CC hooks  │  │ - session   │  │ - AI SDK    │      │
-│  │ - Settings  │  │   JSON      │  │   spans     │      │
-│  │   events    │  │ - OTEL      │  │ - Bus       │      │
-│  │             │  │   events    │  │   events    │      │
+│  │ - CC hooks  │  │ - Settings  │  │   JSON      │      │
+│  │   events    │  │   JSON      │  │ - OTEL      │      │
+│  │             │  │ - OTEL      │  │   events    │      │
 │  └─────────────┘  └─────────────┘  └─────────────┘      │
 │         │                │                │              │
 │         └────────────────┼────────────────┘              │
@@ -202,12 +201,6 @@ The majority of telemetry data is forwarded to a cloud-based observability platf
 |---------|----------|----------|
 | Google Cloud Observability | OTLP | GCP-native deployments |
 | Generic OTLP Collector | OTLP gRPC/HTTP | Self-hosted, multi-cloud |
-
-**Future Backends:**
-
-- Datadog
-- Honeycomb
-- Grafana Cloud
 
 #### Forward Configuration
 
@@ -685,98 +678,63 @@ telemetry:
 
 ## 10. Open Questions
 
-The following questions require further discussion and resolution:
-
 ### 10.1 Cloud Backend Selection
 
-**Question:** Which cloud observability backend should be the initial target?
+**Decision:** Google Cloud Observability (Cloud Trace, Cloud Logging, Cloud Monitoring) is the primary target for the initial implementation.
 
-**Options:**
-1. Google Cloud Observability (Cloud Trace, Cloud Logging, Cloud Monitoring)
-   - Pros: Native GCP integration, unified with existing infra
-   - Cons: GCP lock-in
-2. Generic OTLP Collector (self-hosted)
-   - Pros: Flexibility, no vendor lock-in
-   - Cons: Operational overhead
-3. Honeycomb
-   - Pros: Excellent query UX, OpenTelemetry-native
-   - Cons: Cost at scale
+**Options considered:**
+1. **Google Cloud Observability** (Selected): Native GCP integration, unified with existing infra.
+2. Generic OTLP Collector: Flexibility but higher operational overhead.
+3. Honeycomb: Excellent UX but potential cost at scale.
 
-**Impact:** Affects configuration schema, authentication approach, and web UI integration.
+**Impact:** Configuration and authentication will assume GCP-native identity (Workload Identity) or service account keys.
 
 ### 10.2 Prompt Logging Opt-In
 
-**Question:** How should users opt-in to full prompt/response logging?
+**Decision:** Opt-in is managed at the **Grove** level by the grove administrator.
 
-**Options:**
-1. Per-agent configuration in template
-2. Per-grove setting in Hub
-3. Per-user preference
-4. Runtime environment variable
-
-**Impact:** Affects privacy defaults and configuration complexity.
+**Details:**
+- Configured in the Grove settings on the Hub.
+- When enabled, prompt and response logs are routed to a specific log destination (e.g., a restricted Cloud Logging bucket) to segregate sensitive content.
 
 ### 10.3 Cost Estimation Accuracy
 
-**Question:** How accurate should cost estimates be, and who provides pricing data?
+**Decision:** Financial cost calculation is postponed. The system will track **token usage only** in the initial release.
 
-**Considerations:**
-- Pricing varies by model and changes over time
-- Different providers have different pricing structures
-- Cached tokens have different rates
-
-**Options:**
-1. Sciontool embeds static pricing tables (requires updates)
-2. Hub provides pricing API (central management)
-3. User configures custom rates (flexibility)
+**Rationale:**
+- Pricing is complex and volatile.
+- A future module may provide a price table function to convert token counts to approximate financial cost.
 
 ### 10.4 Session File Watching
 
-**Question:** For Gemini CLI, should sciontool actively watch session files or parse on-demand?
+**Decision:** **End-of-session parsing only** for Gemini CLI.
 
-**Options:**
-1. File watcher (inotify/fsnotify) - real-time but more complex
-2. Poll-based reading - simpler but potential gaps
-3. End-of-session parsing only - simplest but no real-time metrics
-
-**Impact:** Affects real-time dashboard updates and implementation complexity.
+**Rationale:**
+- Simpler implementation than real-time file watching.
+- It is currently unclear if real-time session file parsing provides significant value over the OTel data stream.
 
 ### 10.5 Multi-Model Sessions
 
-**Question:** How should metrics be attributed when a single session uses multiple models?
+**Decision:** Metrics will be **broken down by model** within the session summary.
 
-**Example:** A session that starts with `gemini-2.0-flash` then escalates to `gemini-2.0-pro`.
-
-**Options:**
-1. Attribute to primary/first model
-2. Break down by model within session
-3. Attribute to session only, model breakdown in details
+**Details:**
+- The `agent_session_metrics` table and Hub API will support detailed breakdowns of token usage per model, rather than attributing everything to a single primary model.
 
 ### 10.6 Cross-Agent Correlation
 
-**Question:** Should the system support tracing across agent boundaries (e.g., when one agent spawns a task handled by another)?
+**Decision:** Postponed.
 
-**Options:**
-1. Not initially (each agent is independent)
-2. Pass trace context through agent-to-agent communication
-3. Hub-level correlation via shared identifiers
-
-**Impact:** Affects trace propagation and Hub data model.
+**Details:**
+- Initial implementation treats agents as independent.
+- Future cross-agent correlation will likely be mediated by the Hub using shared identifiers when it orchestrates multi-agent workflows.
 
 ### 10.7 Retention and Archival
 
-**Question:** What retention policies should apply to Hub-stored session metrics?
+**Decision:** **Indefinite retention** of Hub-stored session summaries.
 
-**Considerations:**
-- Storage costs
-- Compliance requirements
-- Historical analysis needs
-
-**Options:**
-1. Hub retains summaries indefinitely
-2. Configurable retention with automatic cleanup
-3. Archive to cold storage after N days
-
+**Details:**
+- The data volume for session summaries is low enough to retain indefinitely.
+- Manual purge or cleanup scripts can be developed if storage becomes an issue.
 ---
 
 ## 11. References
