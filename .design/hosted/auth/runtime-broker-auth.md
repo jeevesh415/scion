@@ -13,14 +13,14 @@ The Hub's unified authentication middleware (see [server-auth-design.md](server-
 
 - Uses HMAC signatures rather than bearer tokens
 - Authenticates infrastructure components, not users or agents
-- Enables bidirectional trust (Hub can push commands to hosts)
-- Operates at the host level, not the request/session level
+- Enables bidirectional trust (Hub can push commands to brokers)
+- Operates at the broker level, not the request/session level
 
 | Authentication Type | Token/Mechanism | Direction | Purpose |
 |---------------------|-----------------|-----------|---------|
 | User (Web/CLI) | JWT Bearer | Client → Hub | User API access |
 | Agent (sciontool) | JWT Bearer | Agent → Hub | Agent status updates |
-| **Runtime Broker** | **HMAC Signature** | **Bidirectional** | **Host ↔ Hub trust** |
+| **Runtime Broker** | **HMAC Signature** | **Bidirectional** | **Broker ↔ Hub trust** |
 
 ### 1.2 Goals
 
@@ -49,7 +49,7 @@ The Hub's unified authentication middleware (see [server-auth-design.md](server-
 │  ┌───────────┐  │                    │  ┌───────────┐  │
 │  │ Secret    │  │                    │  │ Secret    │  │
 │  │ Store     │  │                    │  │ Store     │  │
-│  │ (per host)│  │                    │  │ (local)   │  │
+│  │(per broker)│  │                    │  │ (local)   │  │
 │  └───────────┘  │                    │  └───────────┘  │
 │                 │                    │                 │
 │  ┌───────────┐  │                    │  ┌───────────┐  │
@@ -88,14 +88,14 @@ Before HMAC authentication can work, both parties need a shared secret. This is 
        │ (with user token)     │                       │
        │──────────────────────────────────────────────►│
        │                       │                       │
-       │                       │   { hostId, joinToken, expiry }
+       │                       │   { brokerId, joinToken, expiry }
        │◄──────────────────────────────────────────────│
        │                       │                       │
        │ Provide joinToken     │                       │
        │──────────────────────►│                       │
        │                       │                       │
        │                       │ POST /api/v1/brokers/join
-       │                       │ { hostId, joinToken, publicInfo }
+       │                       │ { brokerId, joinToken, publicInfo }
        │                       │──────────────────────►│
        │                       │                       │
        │                       │   { secretKey, hubEndpoint }
@@ -107,19 +107,19 @@ Before HMAC authentication can work, both parties need a shared secret. This is 
 
 ### 3.2 Registration Steps
 
-1. **Host Creation (User-Initiated)**
-   - An authorized user (admin or host manager) calls the Hub to register a new host
-   - Hub generates a unique `hostId` and a short-lived `joinToken`
-   - User receives the join token to provide to the host operator
+1. **Broker Creation (User-Initiated)**
+   - An authorized user (admin or broker manager) calls the Hub to register a new broker
+   - Hub generates a unique `brokerId` and a short-lived `joinToken`
+   - User receives the join token to provide to the broker operator
 
-2. **Host Join (Host-Initiated)**
+2. **Broker Join (Broker-Initiated)**
    - The Runtime Broker sends its `joinToken` to the Hub's bootstrap endpoint
    - This must occur over HTTPS
-   - Host includes public metadata (hostname, profiles, version)
+   - Broker includes public metadata (hostname, profiles, version)
 
 3. **Secret Exchange**
    - Hub generates a high-entropy secret key ($K_s$) using `crypto/rand`
-   - Hub stores `hash($K_s$)` associated with the `hostId`
+   - Hub stores `hash($K_s$)` associated with the `brokerId`
    - Hub returns $K_s$ to the Runtime Broker (one-time transmission)
    - Runtime Broker stores $K_s$ in local secure storage
 
@@ -129,14 +129,14 @@ In the common case where a user is logged into the Runtime Broker machine and al
 
 ```bash
 # User runs this on the Runtime Broker machine
-scion hub hosts join --name "production-host-1" --profiles local,shared-k8s
+scion hub brokers join --name "production-broker-1" --profiles local,shared-k8s
 ```
 
-For defaults it should use the host info in `~/.scion/`
+For defaults it should use the broker info in `~/.scion/`
 
 This command orchestrates the full registration flow:
 
-1. **Creates Host Record** - Calls `POST /api/v1/brokers` using the user's existing Hub credentials
+1. **Creates Broker Record** - Calls `POST /api/v1/brokers` using the user's existing Hub credentials
 2. **Extracts Join Token** - Receives the `joinToken` from the response
 3. **Completes Join** - Immediately calls `POST /api/v1/brokers/join` with the token
 4. **Stores Credentials** - Saves the returned secret to local credential storage
@@ -145,10 +145,10 @@ The Runtime Broker API exposes a `JoinHub` method that performs steps 3-4:
 
 ```go
 // pkg/runtimebroker/api.go
-func (h *RuntimeBroker) JoinHub(ctx context.Context, hostID, joinToken string) error
+func (h *RuntimeBroker) JoinHub(ctx context.Context, brokerID, joinToken string) error
 ```
 
-For remote or headless hosts where the user cannot run commands directly, the manual two-step flow (user creates host, operator provides join token) remains available.
+For remote or headless brokers where the user cannot run commands directly, the manual two-step flow (user creates broker, operator provides join token) remains available.
 
 ### 3.4 Hub Endpoints
 
@@ -157,14 +157,14 @@ POST /api/v1/brokers
 Authorization: Bearer <user-token>
 Request:
 {
-  "name": "production-host-1",
+  "name": "production-broker-1",
   "capabilities": ["docker", "kubernetes"],
   "labels": { "region": "us-west-2" }
 }
 
 Response:
 {
-  "hostId": "host-uuid-123",
+  "brokerId": "broker-uuid-123",
   "joinToken": "scion_join_AbCdEf123456...",
   "expiresAt": "2025-01-30T13:00:00Z"
 }
@@ -174,9 +174,9 @@ Response:
 POST /api/v1/brokers/join
 Request:
 {
-  "hostId": "host-uuid-123",
+  "brokerId": "broker-uuid-123",
   "joinToken": "scion_join_AbCdEf123456...",
-  "hostname": "prod-host-1.example.com",
+  "hostname": "prod-broker-1.example.com",
   "version": "1.0.0",
   "capabilities": ["docker"]
 }
@@ -185,7 +185,7 @@ Response:
 {
   "secretKey": "base64-encoded-256-bit-key",
   "hubEndpoint": "https://hub.scion.example.com",
-  "hostId": "host-uuid-123"
+  "brokerId": "broker-uuid-123"
 }
 ```
 
@@ -193,7 +193,7 @@ Response:
 
 **Hub Side:**
 - Initial storage in filesystem at ~/.scion/hub-secrets.json
-- Future implementation: Store secret hash in database: `host_secrets(host_id, secret_hash, created_at, rotated_at)`
+- Future implementation: Store secret hash in database: `broker_secrets(broker_id, secret_hash, created_at, rotated_at)`
 - Keep plaintext secret only in memory during validation
 - Support secret rotation with grace period
 
@@ -203,7 +203,7 @@ Response:
 - Structure:
   ```json
   {
-    "hostId": "host-uuid-123",
+    "brokerId": "broker-uuid-123",
     "secretKey": "base64-encoded-key",
     "hubEndpoint": "https://hub.scion.example.com",
     "registeredAt": "2025-01-30T12:00:00Z"
@@ -241,7 +241,7 @@ Once registered, all requests between Runtime Broker and Hub are HMAC-signed.
 
 4. **Attach Headers**
    ```
-   X-Scion-Broker-ID: host-uuid-123
+   X-Scion-Broker-ID: broker-uuid-123
    X-Scion-Timestamp: 2025-01-30T12:00:00Z
    X-Scion-Nonce: random-base64-nonce
    X-Scion-Signature: computed-signature-base64
@@ -264,7 +264,7 @@ Once registered, all requests between Runtime Broker and Hub are HMAC-signed.
 
 4. **Secret Retrieval**
    - Look up secret by `X-Scion-Broker-ID`
-   - Reject if host not found or deactivated
+   - Reject if broker not found or deactivated
 
 5. **Signature Verification**
    - Rebuild canonical string from received request
@@ -275,56 +275,56 @@ Once registered, all requests between Runtime Broker and Hub are HMAC-signed.
 ### 4.3 Go Implementation
 
 ```go
-// pkg/hub/hostauth.go
+// pkg/hub/brokerauth.go
 
-type HostAuthConfig struct {
+type BrokerAuthConfig struct {
     MaxClockSkew time.Duration // Default: 5 minutes
     EnableNonceCache bool      // Enable strict replay prevention
 }
 
-type HostAuthMiddleware struct {
-    secrets HostSecretStore
-    config  HostAuthConfig
+type BrokerAuthMiddleware struct {
+    secrets BrokerSecretStore
+    config  BrokerAuthConfig
     nonces  *NonceCache // Optional
 }
 
-func (m *HostAuthMiddleware) Middleware(next http.Handler) http.Handler {
+func (m *BrokerAuthMiddleware) Middleware(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        hostID := r.Header.Get("X-Scion-Broker-ID")
+        brokerID := r.Header.Get("X-Scion-Broker-ID")
         timestamp := r.Header.Get("X-Scion-Timestamp")
         nonce := r.Header.Get("X-Scion-Nonce")
         signature := r.Header.Get("X-Scion-Signature")
 
         // Validate presence
-        if hostID == "" || timestamp == "" || signature == "" {
-            writeHostAuthError(w, "missing required authentication headers")
+        if brokerID == "" || timestamp == "" || signature == "" {
+            writeBrokerAuthError(w, "missing required authentication headers")
             return
         }
 
         // Parse and validate timestamp
         ts, err := time.Parse(time.RFC3339, timestamp)
         if err != nil {
-            writeHostAuthError(w, "invalid timestamp format")
+            writeBrokerAuthError(w, "invalid timestamp format")
             return
         }
         if time.Since(ts).Abs() > m.config.MaxClockSkew {
-            writeHostAuthError(w, "timestamp outside acceptable window")
+            writeBrokerAuthError(w, "timestamp outside acceptable window")
             return
         }
 
         // Optional: Check nonce
         if m.config.EnableNonceCache && nonce != "" {
             if m.nonces.Seen(nonce) {
-                writeHostAuthError(w, "duplicate nonce (possible replay)")
+                writeBrokerAuthError(w, "duplicate nonce (possible replay)")
                 return
             }
             m.nonces.Add(nonce, m.config.MaxClockSkew)
         }
 
         // Get secret
-        secret, err := m.secrets.GetSecret(r.Context(), hostID)
+        secret, err := m.secrets.GetSecret(r.Context(), brokerID)
         if err != nil {
-            writeHostAuthError(w, "unknown host")
+            writeBrokerAuthError(w, "unknown broker")
             return
         }
 
@@ -334,13 +334,13 @@ func (m *HostAuthMiddleware) Middleware(next http.Handler) http.Handler {
 
         providedSig, err := base64.StdEncoding.DecodeString(signature)
         if err != nil || !hmac.Equal(expected, providedSig) {
-            writeHostAuthError(w, "invalid signature")
+            writeBrokerAuthError(w, "invalid signature")
             return
         }
 
-        // Add host context
-        ctx := context.WithValue(r.Context(), hostContextKey{}, &HostIdentity{
-            ID: hostID,
+        // Add broker context
+        ctx := context.WithValue(r.Context(), brokerContextKey{}, &BrokerIdentity{
+            ID: brokerID,
         })
         next.ServeHTTP(w, r.WithContext(ctx))
     })
@@ -377,9 +377,9 @@ Because both the Hub and Runtime Broker possess $K_s$, either party can initiate
 
 ### 5.1 Runtime Broker → Hub
 
-The Runtime Broker communicates with the Hub for host-level operations:
-- Host heartbeat and health status
-- Host resource availability (CPU, memory, disk)
+The Runtime Broker communicates with the Hub for broker-level operations:
+- Broker heartbeat and health status
+- Broker resource availability (CPU, memory, disk)
 - Agent lifecycle events (started, stopped, crashed)
 - Grove registration updates
 
@@ -387,7 +387,7 @@ The Runtime Broker communicates with the Hub for host-level operations:
 
 ### 5.2 Hub → Runtime Broker
 
-The Hub can push commands to registered hosts:
+The Hub can push commands to registered brokers:
 - Agent provisioning requests
 - Agent termination commands
 - Configuration updates
@@ -401,7 +401,7 @@ POST /api/v1/config/reload      # Reload configuration
 POST /api/v1/secrets/rotate     # Accept new secret
 ```
 
-### 5.3 Host Endpoint Security
+### 5.3 Broker Endpoint Security
 
 Runtime Brokers must:
 1. Bind to localhost or private network only (not public internet)
@@ -445,8 +445,8 @@ Secrets should be rotated periodically or on security events.
 During the grace period, the Hub accepts signatures from either secret:
 
 ```go
-func (m *HostAuthMiddleware) verifyWithRotation(hostID string, canonical, signature []byte) bool {
-    secrets, _ := m.secrets.GetSecrets(hostID) // Returns current + deprecated
+func (m *BrokerAuthMiddleware) verifyWithRotation(brokerID string, canonical, signature []byte) bool {
+    secrets, _ := m.secrets.GetSecrets(brokerID) // Returns current + deprecated
     for _, secret := range secrets {
         expected := computeHMAC(secret.Key, canonical)
         if hmac.Equal(expected, signature) {
@@ -465,7 +465,7 @@ func (m *HostAuthMiddleware) verifyWithRotation(hostID string, canonical, signat
 
 ```yaml
 server:
-  hostAuth:
+  brokerAuth:
     enabled: true
     maxClockSkew: 5m
     enableNonceCache: true
@@ -481,13 +481,13 @@ server:
 ### 7.2 Runtime Broker Configuration
 
 ```yaml
-host:
+broker:
   hub:
     endpoint: "https://hub.scion.example.com"
   credentials:
     file: "~/.scion/broker-credentials.json"
     # OR for production:
-    # secretManager: "projects/my-project/secrets/scion-host-secret"
+    # secretManager: "projects/my-project/secrets/scion-broker-secret"
   api:
     listenAddr: "127.0.0.1:9815"  # For Hub callbacks
 ```
@@ -522,11 +522,11 @@ host:
 
 ### 8.5 Audit Logging
 
-Log all host authentication events:
+Log all broker authentication events:
 ```go
-type HostAuthEvent struct {
+type BrokerAuthEvent struct {
     EventType  string    `json:"eventType"`  // register, join, auth_success, auth_failure
-    HostID     string    `json:"hostId"`
+    BrokerID   string    `json:"brokerId"`
     IPAddress  string    `json:"ipAddress"`
     Success    bool      `json:"success"`
     FailReason string    `json:"failReason,omitempty"`
@@ -549,18 +549,18 @@ None pending.
 **Question:** What permission level should be required to register a new Runtime Broker?
 
 - **Option A:** Admin-only (restrictive)
-- **Option B:** New "host-manager" role
+- **Option B:** New "broker-manager" role
 - **Option C:** Any authenticated user (permissive, for dev/testing)
 
-**Decision:** Admin-only for initial implementation. Future RBAC system may introduce a dedicated "host-manager" role for delegated host administration.
+**Decision:** Admin-only for initial implementation. Future RBAC system may introduce a dedicated "broker-manager" role for delegated broker administration.
 
-### 10.2 Host Identity Verification
+### 10.2 Broker Identity Verification
 
-**Question:** Should we verify host identity beyond the join token during registration?
+**Question:** Should we verify broker identity beyond the join token during registration?
 
 Considerations:
-- Should hosts provide a CSR for mutual TLS?
-- Should hosts prove control of a hostname/IP?
+- Should brokers provide a CSR for mutual TLS?
+- Should brokers prove control of a hostname/IP?
 - Is the join token sufficient for trust establishment?
 
 **Decision:** Admin-issued join token is sufficient for trust establishment. The join token is short-lived and requires admin authorization to create, establishing a chain of trust. mTLS may be considered as a future enhancement for high-security deployments.
@@ -575,17 +575,17 @@ Considerations:
 
 **Decision:** In-memory storage is sufficient for nonce tracking. Nonces only need to be tracked within the clock skew window (5 minutes), so persistence across restarts is not required. If a restart occurs, the timestamp validation alone provides adequate replay protection for the brief window where old nonces might be reused.
 
-### 10.4 Hub-to-Host Communication Model
+### 10.4 Hub-to-Broker Communication Model
 
-**Question:** Should the Hub push commands to hosts, or should hosts poll?
+**Question:** Should the Hub push commands to brokers, or should brokers poll?
 
 | Approach | Pros | Cons |
 |----------|------|------|
-| Push (HTTP to host) | Low latency, immediate commands | Requires host to expose endpoint |
-| Poll (host queries Hub) | No inbound firewall rules needed | Latency, polling overhead |
+| Push (HTTP to broker) | Low latency, immediate commands | Requires broker to expose endpoint |
+| Poll (broker queries Hub) | No inbound firewall rules needed | Latency, polling overhead |
 | WebSocket (persistent) | Real-time, single connection | Connection management complexity |
 
-**Decision:** WebSocket-based persistent connection, initiated by the host. This overcomes firewall restrictions (hosts behind NAT can still receive commands) while providing real-time bidirectional communication. See the WebSocket design documentation for connection management details.
+**Decision:** WebSocket-based persistent connection, initiated by the broker. This overcomes firewall restrictions (brokers behind NAT can still receive commands) while providing real-time bidirectional communication. See the WebSocket design documentation for connection management details.
 
 ### 10.5 WebSocket Message Authentication
 
@@ -599,7 +599,7 @@ Considerations:
 
 Arguments for session-based trust:
 - WebSocket runs over TLS, providing transport-level integrity
-- Initial connection is HMAC-authenticated, establishing host identity
+- Initial connection is HMAC-authenticated, establishing broker identity
 - Connection hijacking would require TLS compromise
 - Similar to how SSH trusts commands after key exchange
 
@@ -608,7 +608,7 @@ Arguments for per-message signing:
 - Audit trail with cryptographic proof per command
 - Protects against compromised Hub process memory
 
-**Decision:** Session-based trust for Hub→Host commands over the established WebSocket connection. The WebSocket is strictly for Hub-initiated commands to hosts (agent provisioning, termination, config updates). Host→Hub requests that require authorization (status updates, API calls) must use standard HMAC-authenticated HTTP requests and should **not** flow over this WebSocket channel. This maintains proper authorization semantics while avoiding per-message overhead for trusted command delivery.
+**Decision:** Session-based trust for Hub→Broker commands over the established WebSocket connection. The WebSocket is strictly for Hub-initiated commands to brokers (agent provisioning, termination, config updates). Broker→Hub requests that require authorization (status updates, API calls) must use standard HMAC-authenticated HTTP requests and should **not** flow over this WebSocket channel. This maintains proper authorization semantics while avoiding per-message overhead for trusted command delivery.
 
 ### 10.6 Secret Rotation Trigger
 
@@ -627,118 +627,118 @@ Arguments for per-message signing:
 - If yes, how are secrets managed per-Hub?
 - What prevents Hub A from impersonating Hub B?
 
-**Decision:** Single Hub per host for initial implementation, with multi-Hub support planned for the future.
+**Decision:** Single Hub per broker for initial implementation, with multi-Hub support planned for the future.
 
 Future multi-Hub design considerations:
-- Host ID remains consistent across Hubs (same host identity)
+- Broker ID remains consistent across Hubs (same broker identity)
 - Each Hub relationship has a unique shared secret
-- Credential storage must be keyed by Hub endpoint: `~/.scion/host-credentials/{hub-id}.json`
+- Credential storage must be keyed by Hub endpoint: `~/.scion/broker-credentials/{hub-id}.json`
 - Hub impersonation prevented by unique secrets and endpoint verification
 
 Storage systems should be designed to accommodate per-Hub credentials from the start.
 
-### 10.8 Host Deactivation and Cleanup
+### 10.8 Broker Deactivation and Cleanup
 
-**Question:** What happens when a host is deactivated?
+**Question:** What happens when a broker is deactivated?
 
 - Should running agents be terminated immediately?
 - How long should the secret be retained for audit purposes?
 - Should there be a "quarantine" state before full deletion?
 
-**Decision:** On host deactivation:
-1. Running agents are terminated immediately (Hub sends termination commands if host is reachable)
-2. Host secret is marked inactive (authentication attempts rejected)
+**Decision:** On broker deactivation:
+1. Running agents are terminated immediately (Hub sends termination commands if broker is reachable)
+2. Broker secret is marked inactive (authentication attempts rejected)
 3. Secret hash retained for 30 days for audit trail purposes
 4. Full deletion after retention period
 
 ### 10.9 Integration with Agent Auth
 
-**Question:** How does host authentication relate to agent token issuance?
+**Question:** How does broker authentication relate to agent token issuance?
 
-When the Hub provisions an agent on a host:
-1. Hub authenticates to host via HMAC (or over authenticated WebSocket)
-2. Host starts agent container with... what token?
+When the Hub provisions an agent on a broker:
+1. Hub authenticates to broker via HMAC (or over authenticated WebSocket)
+2. Broker starts agent container with... what token?
 
 Options:
 - Hub sends pre-signed agent JWT in provision request
-- Host requests agent JWT from Hub after container starts
+- Broker requests agent JWT from Hub after container starts
 - Agent bootstraps its own token via Hub API
 
 **Decision:** Hub includes pre-signed agent JWT in the provision request payload.
 
 Rationale:
 - Runtime Brokers operate at a higher trust level than individual agents
-- The trust model assumes hosts will not abuse access to agent credentials
+- The trust model assumes brokers will not abuse access to agent credentials
 - Pre-signed tokens eliminate a round-trip and simplify agent startup
 - Agent tokens are scoped to specific agent IDs, limiting blast radius if compromised
-- Host compromise is a more serious security event that would be addressed separately
+- Broker compromise is a more serious security event that would be addressed separately
 
 ---
 
 ## 11. Implementation Checklist
 
 ### Phase 1: Core Infrastructure ✓
-- [x] Define `HostSecretStore` interface (`pkg/store/store.go`)
+- [x] Define `BrokerSecretStore` interface (`pkg/store/store.go`)
 - [x] ~~Implement in-memory secret store (dev/testing)~~ (skipped - SQLite with `:memory:` sufficient for testing)
-- [x] Implement SQLite secret store (`pkg/store/sqlite/hostsecret.go`)
-- [x] Create host registration endpoints (`POST /hosts`, `POST /hosts/join`) (`pkg/hub/handlers_hosts.go`)
-- [x] Implement `HostAuthMiddleware` for Hub (`pkg/hub/hostauth.go`)
+- [x] Implement SQLite secret store (`pkg/store/sqlite/brokersecret.go`)
+- [x] Create broker registration endpoints (`POST /brokers`, `POST /brokers/join`) (`pkg/hub/handlers_brokers.go`)
+- [x] Implement `BrokerAuthMiddleware` for Hub (`pkg/hub/brokerauth.go`)
 
 **Implementation Notes (Phase 1):**
 - Timestamp format uses Unix epoch (seconds) rather than RFC 3339 for simpler parsing
-- `HostAuthService` provides both middleware and `SignRequest()` helper for clients
+- `BrokerAuthService` provides both middleware and `SignRequest()` helper for clients
 - Join tokens use `scion_join_` prefix with base64-encoded random bytes
 - Nonce cache is optional and disabled by default (`EnableNonceCache: false`)
 - Secret keys are 256-bit (32 bytes) generated via `crypto/rand`
-- Database migration V8 adds `host_secrets` and `host_join_tokens` tables with FK cascade delete
+- Database migration V8 adds `broker_secrets` and `broker_join_tokens` tables with FK cascade delete
 
 ### Phase 2: Runtime Broker Integration ✓
 - [x] Add HMAC signing to `hubclient` package (`pkg/apiclient/hmac.go`, `hubclient.WithHMACAuth()`)
 - [x] Implement local credential storage (`pkg/brokercredentials/store.go`)
-- [x] Add host-side signature verification (`pkg/runtimebroker/hostauth.go`)
+- [x] Add broker-side signature verification (`pkg/runtimebroker/brokerauth.go`)
 - [x] Implement heartbeat/status reporting (`pkg/runtimebroker/heartbeat.go`)
 
 **Implementation Notes (Phase 2):**
 - `HMACAuth` implements `apiclient.Authenticator` for signing outgoing requests
 - `BuildCanonicalString` and `ComputeHMAC` are exported for use by both client and server
-- `HostCredentials` stored in `~/.scion/broker-credentials.json` with 0600 permissions
+- `BrokerCredentials` stored in `~/.scion/broker-credentials.json` with 0600 permissions
 - `HeartbeatService` runs background goroutine sending heartbeats at configurable interval (default 30s)
-- `HostAuthMiddleware` verifies incoming Hub requests using shared secret
+- `BrokerAuthMiddleware` verifies incoming Hub requests using shared secret
 - Server integration loads credentials on startup and configures HMAC auth automatically
 
 ### Phase 3: Bidirectional Communication ✓
-- [x] Add Hub→Host HTTP client with HMAC signing (`pkg/hub/brokerclient.go`)
-- [x] Update RuntimeBrokerClient interface to include hostID (`pkg/hub/server.go`)
-- [x] Update HTTPAgentDispatcher to pass hostID for auth (`pkg/hub/httpdispatcher.go`)
+- [x] Add Hub→Broker HTTP client with HMAC signing (`pkg/hub/brokerclient.go`)
+- [x] Update RuntimeBrokerClient interface to include brokerID (`pkg/hub/server.go`)
+- [x] Update HTTPAgentDispatcher to pass brokerID for auth (`pkg/hub/httpdispatcher.go`)
 - [x] Add strict mode config for Runtime Broker (`pkg/runtimebroker/server.go`)
 
 **Implementation Notes (Phase 3):**
-- `AuthenticatedHostClient` wraps HTTP client with HMAC signing using `apiclient.HMACAuth`
-- `RuntimeBrokerClient` interface methods now take `hostID` as first parameter after `ctx`
-- `HTTPRuntimeBrokerClient` ignores hostID (for backward compatibility), `AuthenticatedHostClient` uses it for secret lookup
+- `AuthenticatedBrokerClient` wraps HTTP client with HMAC signing using `apiclient.HMACAuth`
+- `RuntimeBrokerClient` interface methods now take `brokerID` as first parameter after `ctx`
+- `HTTPRuntimeBrokerClient` ignores brokerID (for backward compatibility), `AuthenticatedBrokerClient` uses it for secret lookup
 - `CreateAuthenticatedDispatcher()` helper on Hub Server creates dispatcher with authenticated client
-- `HostAuthStrictMode` config on Runtime Broker: when true, requires all requests to be authenticated; when false (default), allows unauthenticated requests during transition
+- `BrokerAuthStrictMode` config on Runtime Broker: when true, requires all requests to be authenticated; when false (default), allows unauthenticated requests during transition
 - Graceful degradation: if secret lookup fails, request proceeds without signature (logged as warning)
 
 ### Phase 4: Production Hardening ✓
-- [x] Enable nonce cache by default (`pkg/hub/hostauth.go` - `EnableNonceCache: true`)
+- [x] Enable nonce cache by default (`pkg/hub/brokerauth.go` - `EnableNonceCache: true`)
 - [x] Implement secret rotation flow (`POST /api/v1/brokers/{id}/rotate-secret`)
-- [x] Add dual-secret validation support (`GetActiveSecrets`, `ValidateHostSignatureWithRotation`)
+- [x] Add dual-secret validation support (`GetActiveSecrets`, `ValidateBrokerSignatureWithRotation`)
 - [ ] Add Google Secret Manager integration (deferred - local file storage sufficient for now)
 - [x] Add comprehensive audit logging (`pkg/hub/audit.go`)
 - [x] Add metrics (`pkg/hub/metrics.go`, `/metrics` endpoint)
 
 **Implementation Notes (Phase 4):**
-- Nonce cache now enabled by default in `DefaultHostAuthConfig()` for replay attack prevention
-- `RotateHostSecret()` generates new secret and updates existing record; full dual-secret with schema migration deferred
+- Nonce cache now enabled by default in `DefaultBrokerAuthConfig()` for replay attack prevention
+- `RotateBrokerSecret()` generates new secret and updates existing record; full dual-secret with schema migration deferred
 - `GetActiveSecrets()` returns both active and deprecated secrets for grace period validation
-- Rotation endpoint at `POST /api/v1/brokers/{id}/rotate-secret` allows admin or host self-rotation
+- Rotation endpoint at `POST /api/v1/brokers/{id}/rotate-secret` allows admin or broker self-rotation
 - `LogAuditLogger` logs to standard logger; implements `AuditLogger` interface for custom backends
-- `AuditableHostAuthMiddleware` wraps auth with audit logging for success/failure events
+- `AuditableBrokerAuthMiddleware` wraps auth with audit logging for success/failure events
 - Helper functions: `LogRegistrationEvent`, `LogJoinEvent`, `LogRotateEvent` for handler integration
-- `HostAuthMetrics` tracks counters (auth attempts, registrations, joins, rotations, dispatches) and latency percentiles
+- `BrokerAuthMetrics` tracks counters (auth attempts, registrations, joins, rotations, dispatches) and latency percentiles
 - `/metrics` endpoint returns JSON snapshot of all metrics
-- Note: Current schema uses `host_id` as primary key (one secret per host); true dual-secret rotation requires schema migration to support multiple secrets per host
+- Note: Current schema uses `broker_id` as primary key (one secret per broker); true dual-secret rotation requires schema migration to support multiple secrets per broker
 
 ---
 

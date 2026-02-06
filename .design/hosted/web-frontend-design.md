@@ -2506,9 +2506,9 @@ The Hub API publishes events to NATS when database changes occur. The Web Fronte
 | `grove.{groveId}.agent.created` | Agent created in grove | Full `Agent` object |
 | `grove.{groveId}.agent.deleted` | Agent deleted from grove | `{ agentId }` |
 | `grove.{groveId}.updated` | Grove metadata changed | `{ name?, labels?, ... }` |
-| `grove.{groveId}.host.connected` | Host joined grove | `{ hostId, hostName }` |
-| `grove.{groveId}.host.disconnected` | Host left grove | `{ hostId }` |
-| `host.{hostId}.status` | Host status change | `{ status, resources }` |
+| `grove.{groveId}.broker.connected` | Broker joined grove | `{ brokerId, brokerName }` |
+| `grove.{groveId}.broker.disconnected` | Broker left grove | `{ brokerId }` |
+| `broker.{brokerId}.status` | Broker status change | `{ status, resources }` |
 
 ### 12.2 Hub-Side Publishing
 

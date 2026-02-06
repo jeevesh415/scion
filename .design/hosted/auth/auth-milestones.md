@@ -96,5 +96,5 @@ This document tracks the phased implementation of Scion authentication.
 - [CLI Authentication](cli-auth.md) - Terminal-based authentication
 - [Server Authentication](server-auth-design.md) - Hub server-side auth handling
 - [Server Auth Setup](server-auth-setup.md) - API keys and dev authentication
-- [Runtime Broker Auth](runtime-broker-auth.md) - Host registration (future)
+- [Runtime Broker Auth](runtime-broker-auth.md) - Broker registration (future)
 - [sciontool Auth](sciontool-auth.md) - Agent-to-Hub JWT authentication

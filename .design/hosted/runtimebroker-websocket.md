@@ -36,15 +36,15 @@ Additionally, interactive terminal access requires low-latency bidirectional str
 ### 1.2 Solution
 
 The Runtime Broker initiates a persistent WebSocket connection to the Hub. This connection:
-- **Traverses NAT/firewalls**: Host-initiated outbound connections typically succeed
-- **Enables bidirectional communication**: Hub can send commands; Host can send events
+- **Traverses NAT/firewalls**: Broker-initiated outbound connections typically succeed
+- **Enables bidirectional communication**: Hub can send commands; Broker can send events
 - **Supports stream multiplexing**: Multiple PTY sessions over a single connection
 
 ### 1.3 Design Goals
 
 | Goal | Description |
 |------|-------------|
-| NAT traversal | Hosts behind NAT/firewalls can receive Hub commands |
+| NAT traversal | Brokers behind NAT/firewalls can receive Hub commands |
 | Low latency | Real-time PTY streaming for interactive use |
 | Simplicity | Reuse existing REST API logic where possible |
 | Resilience | Graceful reconnection with state reconciliation |
@@ -61,8 +61,8 @@ The Runtime Broker initiates a persistent WebSocket connection to the Hub. This 
 │   Scion Hub     │                    │  Runtime Broker   │
 │                 │◄───────────────────│  (behind NAT)   │
 │                 │   WebSocket        │                 │
-│  Control Plane  │   Control Channel  │  Host Agent     │
-│                 │   (Host-initiated) │                 │
+│  Control Plane  │   Control Channel  │  Broker Agent   │
+│                 │(Broker-initiated)  │                 │
 └─────────────────┘                    └─────────────────┘
         │                                      │
         │  HTTP Requests (Tunneled)            │
@@ -86,14 +86,14 @@ The Runtime Broker initiates a persistent WebSocket connection to the Hub. This 
                     │  │ Manager            │  │
                     │  │                    │  │
 Browser/CLI ──WS──► │  │ ┌──────┐ ┌──────┐  │  │ ◄──WS── Runtime Broker A
-                    │  │ │Host A│ │Host B│  │  │
+                    │  │ │Brkr A│ │Brkr B│  │  │
                     │  │ └──────┘ └──────┘  │  │ ◄──WS── Runtime Broker B
                     │  └────────────────────┘  │
                     │                          │
                     │  ┌────────────────────┐  │
                     │  │ Stream Mapper      │  │
                     │  │ (client WS →       │  │
-                    │  │  host stream ID)   │  │
+                    │  │  broker stream ID)  │  │
                     │  └────────────────────┘  │
                     └──────────────────────────┘
 ```
@@ -102,8 +102,8 @@ Browser/CLI ──WS──► │  │ ┌──────┐ ┌────�
 
 | Endpoint | Direction | Purpose |
 |----------|-----------|---------|
-| `WS /api/v1/runtime-brokers/connect` | Host → Hub | Control channel (commands, events, streams) |
-| `WS /api/v1/agents/{id}/pty` | Client → Hub | PTY access (proxied to host) |
+| `WS /api/v1/runtime-brokers/connect` | Broker → Hub | Control channel (commands, events, streams) |
+| `WS /api/v1/agents/{id}/pty` | Client → Hub | PTY access (proxied to broker) |
 | `WS /api/v1/agents/{id}/events` | Client → Hub | Agent status stream |
 | `WS /api/v1/groves/{id}/events` | Client → Hub | Grove-wide events |
 
@@ -119,24 +119,24 @@ WS /api/v1/runtime-brokers/connect
 ```
 
 **Prerequisites:**
-- Host must have registered at least one grove via REST API
-- Host must have a valid shared secret (from registration flow)
+- Broker must have registered at least one grove via REST API
+- Broker must have a valid shared secret (from registration flow)
 
 **HMAC Authentication Headers:**
 ```
-X-Scion-Broker-ID: host-abc123
+X-Scion-Broker-ID: broker-abc123
 X-Scion-Timestamp: 2025-01-24T10:00:00Z
 X-Scion-Nonce: random-nonce-xyz
-X-Scion-Signature: HMAC-SHA256(secret, "{hostId}:{timestamp}:{nonce}:GET:/api/v1/runtime-brokers/connect")
+X-Scion-Signature: HMAC-SHA256(secret, "{brokerId}:{timestamp}:{nonce}:GET:/api/v1/runtime-brokers/connect")
 ```
 
 ### 3.2 Initial Handshake
 
-**Host → Hub (connect message):**
+**Broker → Hub (connect message):**
 ```json
 {
   "type": "connect",
-  "hostId": "string",
+  "brokerId": "string",
   "version": "1.2.3",
   "groves": [
     {
@@ -158,11 +158,11 @@ X-Scion-Signature: HMAC-SHA256(secret, "{hostId}:{timestamp}:{nonce}:GET:/api/v1
 }
 ```
 
-**Hub → Host (connected acknowledgment):**
+**Hub → Broker (connected acknowledgment):**
 ```json
 {
   "type": "connected",
-  "hostId": "string",
+  "brokerId": "string",
   "hubTime": "2025-01-24T10:00:00Z",
   "groves": [
     {
@@ -176,9 +176,9 @@ X-Scion-Signature: HMAC-SHA256(secret, "{hostId}:{timestamp}:{nonce}:GET:/api/v1
 
 ### 3.3 HTTP Tunneling Protocol
 
-To support a unified API surface and allow the Hub to "dial" the Runtime Broker regardless of network topology, the Control Channel acts as a tunnel for standard HTTP requests. This avoids maintaining a separate "command" schema and allows the Host to reuse its existing REST API handlers.
+To support a unified API surface and allow the Hub to "dial" the Runtime Broker regardless of network topology, the Control Channel acts as a tunnel for standard HTTP requests. This avoids maintaining a separate "command" schema and allows the Broker to reuse its existing REST API handlers.
 
-**Request Envelope (Hub → Host):**
+**Request Envelope (Hub → Broker):**
 ```json
 {
   "type": "request",
@@ -193,7 +193,7 @@ To support a unified API surface and allow the Hub to "dial" the Runtime Broker 
 }
 ```
 
-**Response Envelope (Host → Hub):**
+**Response Envelope (Broker → Hub):**
 ```json
 {
   "type": "response",
@@ -217,11 +217,11 @@ To support a unified API surface and allow the Hub to "dial" the Runtime Broker 
 
 **Recommendation:** Adopt HTTP Tunneling. The operational benefits of a single API implementation outweigh the negligible bandwidth overhead.
 
-### 3.5 Event Types (Host → Hub)
+### 3.5 Event Types (Broker → Hub)
 
-For Host-to-Hub events (e.g., status updates, heartbeats), the Runtime Broker **MUST** use standard, direct HTTP requests to the Hub API, authenticated via HMAC. 
+For Broker-to-Hub events (e.g., status updates, heartbeats), the Runtime Broker **MUST** use standard, direct HTTP requests to the Hub API, authenticated via HMAC.
 
-The WebSocket control channel is primarily for **Hub-initiated** traffic (Tunneling) and **Bidirectional Streaming** (PTY). It is not used for Host-initiated control plane events.
+The WebSocket control channel is primarily for **Hub-initiated** traffic (Tunneling) and **Bidirectional Streaming** (PTY). It is not used for Broker-initiated control plane events.
 
 **Why?**
 - **Simplicity:** Keeps the WebSocket protocol focused on "dial-in" capability.
@@ -236,7 +236,7 @@ The WebSocket control channel is primarily for **Hub-initiated** traffic (Tunnel
 
 PTY sessions are initiated via a special "Upgrade" request over the HTTP tunnel, which establishes a multiplexed stream.
 
-**Upgrade Request (Hub → Host):**
+**Upgrade Request (Hub → Broker):**
 ```json
 {
   "type": "request",
@@ -323,8 +323,8 @@ The CLI acts similarly to a browser but uses standard user authentication.
 3.  **Proxying**:
     *   Hub validates the user token.
     *   Hub locates the target Runtime Broker.
-    *   Hub sends "Upgrade Request" (see 4.1) over the Control Channel to the Host.
-    *   Hub pipes the CLI WebSocket frames to the Host Stream frames.
+    *   Hub sends "Upgrade Request" (see 4.1) over the Control Channel to the Broker.
+    *   Hub pipes the CLI WebSocket frames to the Broker Stream frames.
 4.  **Terminal Mode**: CLI sets its local TTY to raw mode to handle special characters locally before sending.
 
 ---
@@ -336,7 +336,7 @@ The CLI acts similarly to a browser but uses standard user authentication.
 The control channel WebSocket upgrade request is authenticated using HMAC:
 
 ```
-HMAC-SHA256(shared_secret, "{hostId}:{timestamp}:{nonce}:GET:{path}")
+HMAC-SHA256(shared_secret, "{brokerId}:{timestamp}:{nonce}:GET:{path}")
 ```
 
 **Headers:**
@@ -350,12 +350,12 @@ HMAC-SHA256(shared_secret, "{hostId}:{timestamp}:{nonce}:GET:{path}")
 ### 5.2 Session-Based Trust
 
 Once the WebSocket is established with HMAC authentication:
-- **Hub → Host commands** use session-based trust (no per-message signing)
-- **Host → Hub requests** requiring authorization must use separate HMAC-authenticated HTTP requests
+- **Hub → Broker commands** use session-based trust (no per-message signing)
+- **Broker → Hub requests** requiring authorization must use separate HMAC-authenticated HTTP requests
 
 **Rationale:**
 - WebSocket runs over TLS, providing transport-level integrity
-- Initial connection establishes host identity
+- Initial connection establishes broker identity
 - Similar trust model to SSH after key exchange
 - Avoids per-message cryptographic overhead
 
@@ -380,8 +380,8 @@ The CLI (e.g., using a library like `gorilla/websocket`) has full control over t
 
 ### 6.1 Heartbeat
 
-- **Interval**: Host sends heartbeat every 30 seconds
-- **Timeout**: Hub marks host as `disconnected` after 90 seconds without heartbeat
+- **Interval**: Broker sends heartbeat every 30 seconds
+- **Timeout**: Hub marks broker as `disconnected` after 90 seconds without heartbeat
 - **Format**:
   ```json
   {
@@ -403,16 +403,16 @@ The CLI (e.g., using a library like `gorilla/websocket`) has full control over t
 
 ### 6.3 Graceful Shutdown
 
-**Host Shutdown:**
-1. Host sends `shutting_down` heartbeat
-2. Hub marks host as `offline`
-3. Hub fails pending commands for this host
+**Broker Shutdown:**
+1. Broker sends `shutting_down` heartbeat
+2. Hub marks broker as `offline`
+3. Hub fails pending commands for this broker
 4. Active streams are terminated
 
 **Hub Shutdown:**
-1. Hub sends disconnect to connected hosts
-2. Hosts enter reconnection loop
-3. Commands queue up locally (if host supports it)
+1. Hub sends disconnect to connected brokers
+2. Brokers enter reconnection loop
+3. Commands queue up locally (if broker supports it)
 
 ---
 
@@ -422,15 +422,15 @@ The Hub supports two transport modes for communicating with Runtime Brokers:
 
 | Transport | Use Case | Selection Criteria |
 |-----------|----------|-------------------|
-| WebSocket Control Channel | Hosts behind NAT/firewalls | Host has active WS connection |
-| Direct HTTP | Hosts with reachable endpoints | Host has registered `endpoint` URL |
+| WebSocket Control Channel | Brokers behind NAT/firewalls | Broker has active WS connection |
+| Direct HTTP | Brokers with reachable endpoints | Broker has registered `endpoint` URL |
 
 **Selection Logic:**
 
 ```
-When Hub needs to send request to Host:
-1. If Host has active control channel → use WebSocket Tunnel
-2. If Host has registered endpoint and status == "online" → attempt Direct HTTP
+When Hub needs to send request to Broker:
+1. If Broker has active control channel → use WebSocket Tunnel
+2. If Broker has registered endpoint and status == "online" → attempt Direct HTTP
 3. Otherwise → return 502 runtime_error
 ```
 
@@ -469,7 +469,7 @@ For horizontal scalability, a hybrid approach could decouple command delivery fr
 │   CRUD Operations (Polling)          Interactive Streams (WS)  │
 │   ─────────────────────────          ────────────────────────  │
 │                                                                 │
-│   Hub ──► Queue ──► Host             Browser ◄──► Hub ◄──► Host│
+│   Hub ──► Queue ──► Broker          Browser ◄──► Hub ◄──► Broker│
 │       (DB-backed)                         (WebSocket relay)    │
 │                                                                 │
 │   • create_agent                     • PTY attachment          │
@@ -494,15 +494,15 @@ For horizontal scalability, a hybrid approach could decouple command delivery fr
 ### 8.3 Open Questions
 
 **1. Stream-ready WebSocket vs On-Demand**
-*Question:* Should hosts maintain a persistent "stream-ready" WebSocket, or connect on-demand per stream?
-*Recommendation:* **Multiplex over Control Channel**. Opening a new WebSocket connection from Host to Hub for every PTY session introduces latency and connection management overhead. Multiplexing over the existing authenticated control channel is more efficient and firewall-friendly.
+*Question:* Should brokers maintain a persistent "stream-ready" WebSocket, or connect on-demand per stream?
+*Recommendation:* **Multiplex over Control Channel**. Opening a new WebSocket connection from Broker to Hub for every PTY session introduces latency and connection management overhead. Multiplexing over the existing authenticated control channel is more efficient and firewall-friendly.
 
 **2. Stream token expiration**
 *Question:* How to handle cleanup of unused stream tokens/tickets?
 *Recommendation:* **Short TTL + Single Use**. Tickets for browser WebSocket connection should expire in 60 seconds and be invalidated immediately upon use. This prevents replay attacks and accumulation of stale state in the Hub.
 
 **3. WebRTC**
-*Question:* Can browser-to-host PTY bypass the Hub using WebRTC in some scenarios?
+*Question:* Can browser-to-broker PTY bypass the Hub using WebRTC in some scenarios?
 *Decision:* **No**. The Runtime Broker is designed to operate in environments that are unreachable from the public internet (behind NAT/firewalls). While WebRTC *can* traverse NAT, the complexity of STUN/TURN setup outweighs the benefits for text-based PTY streams. All traffic will proxy through the Hub.
 
 ---
@@ -537,13 +537,13 @@ For horizontal scalability, a hybrid approach could decouple command delivery fr
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │ PTY Handler (pkg/hub/pty_handlers.go)                    │   │
 │  │ - Authenticates client                                   │   │
-│  │ - Opens stream to host                                   │   │
+│  │ - Opens stream to broker                                 │   │
 │  │ - Relays data bidirectionally                           │   │
 │  └─────────────────────┬───────────────────────────────────┘   │
 │                        │                                        │
 │  ┌─────────────────────▼───────────────────────────────────┐   │
 │  │ Control Channel Manager (pkg/hub/controlchannel.go)      │   │
-│  │ - Manages host connections                               │   │
+│  │ - Manages broker connections                             │   │
 │  │ - Tunnels HTTP requests                                  │   │
 │  │ - Multiplexes streams                                    │   │
 │  └─────────────────────┬───────────────────────────────────┘   │
@@ -571,7 +571,7 @@ For horizontal scalability, a hybrid approach could decouple command delivery fr
 
 **Control Channel:**
 - WebSocket endpoint at `/api/v1/runtime-brokers/connect`
-- Host connection management with session IDs
+- Broker connection management with session IDs
 - HTTP request tunneling through WebSocket
 - Stream multiplexing for PTY sessions
 - Ping/pong keepalive
@@ -614,8 +614,8 @@ runtimeBroker:
 
 | Document | Relevant Sections |
 |----------|-------------------|
-| [hub-api.md](hub-api.md) | Section 8 (WebSocket Endpoints), Section 11 (Host Control Plane Protocol), Section 15 (Future Considerations) |
+| [hub-api.md](hub-api.md) | Section 8 (WebSocket Endpoints), Section 11 (Broker Control Plane Protocol), Section 15 (Future Considerations) |
 | [runtime-broker-api.md](runtime-broker-api.md) | Section 3.2 (Control Channel), Section 4.2 (Attach PTY) |
-| [auth/runtime-broker-auth.md](auth/runtime-broker-auth.md) | Section 10.4 (Hub-to-Host Communication), Section 10.5 (WebSocket Message Auth) |
+| [auth/runtime-broker-auth.md](auth/runtime-broker-auth.md) | Section 10.4 (Hub-to-Broker Communication), Section 10.5 (WebSocket Message Auth) |
 | [server-implementation-design.md](server-implementation-design.md) | Section 12.5 (WebSocket Proxying) |
 | [web-frontend-design.md](web-frontend-design.md) | Terminal component WebSocket integration |

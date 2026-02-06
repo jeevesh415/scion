@@ -9,7 +9,7 @@ This document outlines the architecture for transforming Scion into a distribute
 The architecture introduces:
 *   **Scion Hub (State Server):** A centralized API and database for agent state, groves, templates, and users.
 *   **Groves (Projects):** The primary unit of registration with the Hub. A grove represents a project/repository and is the boundary through which runtime brokers interact with the Hub.
-*   **Runtime Brokers:** Compute nodes with access to one or more container runtimes (local Docker, Kubernetes cluster, etc.). Hosts expose functionality *through* their registered groves, not as standalone entities.
+*   **Runtime Brokers:** Compute nodes with access to one or more container runtimes (local Docker, Kubernetes cluster, etc.). Brokers expose functionality *through* their registered groves, not as standalone entities.
 
 This distributed model supports fully hosted SaaS scenarios, hybrid local/cloud setups, and "Solo Mode" (standalone CLI) using the same architectural primitives.
 
@@ -18,8 +18,8 @@ This distributed model supports fully hosted SaaS scenarios, hybrid local/cloud 
 The **Grove** is the fundamental unit of Hub registration, not the Runtime Broker. When a local development environment or server connects to a Hub, it registers one or more groves. This design reflects the reality that:
 
 1. **Groves have identity** - A grove is uniquely identified by its git remote URL (when git-backed). This provides a natural deduplication mechanism.
-2. **Hosts are ephemeral** - Developer laptops come and go; what matters is the project they're working on.
-3. **Groves can span hosts** - Multiple developers (runtime brokers) can contribute agents to the same grove.
+2. **Brokers are ephemeral** - Developer laptops come and go; what matters is the project they're working on.
+3. **Groves can span brokers** - Multiple developers (runtime brokers) can contribute agents to the same grove.
 4. **Profiles are per-grove** - Runtime configuration (Docker vs K8s, resource limits) is defined in grove settings.
 
 ### Key Architectural Principle: Explicit Mode Selection (No Silent Fallback)
@@ -59,12 +59,12 @@ The grove is fully managed through the Hub. The Hub has complete control over ag
 *   Web-based PTY and management are available
 
 ## 2. Goals & Scope
-*   **Grove-Centric Registration:** Groves are the unit of registration with the Hub. Runtime hosts register the groves they serve.
+*   **Grove-Centric Registration:** Groves are the unit of registration with the Hub. Runtime brokers register the groves they serve.
 *   **Git Remote as Identity:** Groves associated with git repositories are uniquely identified by their git remote URL. This ensures a single Hub grove maps to exactly one repository.
 *   **Distributed Groves:** A single grove can span multiple runtime brokers (e.g., multiple developers working on the same project).
-*   **Centralized State:** Agent metadata is persisted in a central database (Scion Hub), enabling cross-host visibility.
+*   **Centralized State:** Agent metadata is persisted in a central database (Scion Hub), enabling cross-broker visibility.
 *   **Flexible Runtime:** Agents can run on local Docker, a remote server, or a Kubernetes cluster. Runtime configuration is defined per-grove in profiles.
-*   **Unified Interface:** Users interact with the Scion Hub API (or a CLI connected to it) to manage agents across any host.
+*   **Unified Interface:** Users interact with the Scion Hub API (or a CLI connected to it) to manage agents across any broker.
 *   **Web-Based Access:** Support for web-based PTY and management for hosted agents.
 
 ## 3. High-Level Architecture
@@ -105,20 +105,20 @@ See `server-implementation-design.md` for detailed server configuration.
 
 ```mermaid
 sequenceDiagram
-    participant Host as Runtime Broker
+    participant Broker as Runtime Broker
     participant Hub as Scion Hub
     participant DB as Database
 
-    Host->>Hub: Register Grove (git remote, path, profiles)
+    Broker->>Hub: Register Grove (git remote, path, profiles)
     Hub->>DB: Lookup grove by git remote
     alt Grove exists
         DB-->>Hub: Existing grove record
-        Hub->>DB: Add host as contributor
+        Hub->>DB: Add broker as contributor
     else Grove is new
         Hub->>DB: Create grove record
-        Hub->>DB: Add host as contributor
+        Hub->>DB: Add broker as contributor
     end
-    Hub-->>Host: Grove ID + Host Token
+    Hub-->>Broker: Grove ID + Broker Token
 ```
 
 ## 4. Core Components
@@ -127,7 +127,7 @@ sequenceDiagram
 The central authority responsible for:
 *   **Persistence:** Stores `Agents`, `Groves`, `Users`, and `Templates`.
 *   **Grove Registry:** Maintains the canonical registry of groves, enforcing git remote uniqueness.
-*   **Host Tracking:** Tracks which runtime brokers contribute to each grove.
+*   **Broker Tracking:** Tracks which runtime brokers contribute to each grove.
 *   **Routing:** Directs agent operations to the appropriate runtime broker(s) within a grove.
 *   **API:** Exposes the primary REST interface for clients.
 
@@ -135,25 +135,25 @@ The central authority responsible for:
 The grove is the **primary unit of registration** with the Hub. A grove represents a project, typically backed by a git repository.
 
 *   **Identity:** Groves with git repositories are uniquely identified by their normalized git remote URL. This is enforced at the Hub level.
-*   **Distributed:** A grove can span multiple runtime brokers. Each host that registers the same grove (identified by git remote) becomes a contributor.
-*   **Default Runtime Broker:** Each grove has a default runtime broker (`defaultRuntimeBrokerId`) that is used when creating agents without an explicit host. This is automatically set to the first runtime broker that registers with the grove.
-*   **Profiles:** Runtime configuration (Docker vs K8s, resource limits, etc.) is defined per-grove in the settings file. Hosts advertise which profiles they can execute.
+*   **Distributed:** A grove can span multiple runtime brokers. Each broker that registers the same grove (identified by git remote) becomes a contributor.
+*   **Default Runtime Broker:** Each grove has a default runtime broker (`defaultRuntimeBrokerId`) that is used when creating agents without an explicit broker. This is automatically set to the first runtime broker that registers with the grove.
+*   **Profiles:** Runtime configuration (Docker vs K8s, resource limits, etc.) is defined per-grove in the settings file. Brokers advertise which profiles they can execute.
 *   **Hub Record:** The Hub maintains:
     *   Grove metadata (name, slug, git remote, owner)
     *   Default runtime broker ID for agent creation
-    *   List of contributing hosts
+    *   List of contributing brokers
     *   Aggregate agent count and status
 
 ### 4.3. Runtime Broker
-A compute node with access to one or more container runtimes. Hosts do not register themselves as standalone entities; instead, they register the groves they serve.
+A compute node with access to one or more container runtimes. Brokers do not register themselves as standalone entities; instead, they register the groves they serve.
 
-*   **Grove Registration:** On startup (or on-demand), a host registers one or more local groves with the Hub.
-*   **Authentication:** Hosts authenticate with the Hub using HMAC-based request signing, enabling bidirectional trust without token transmission after initial registration. See [Runtime Broker Auth](auth/runtime-broker-auth.md) for details.
+*   **Grove Registration:** On startup (or on-demand), a broker registers one or more local groves with the Hub.
+*   **Authentication:** Brokers authenticate with the Hub using HMAC-based request signing, enabling bidirectional trust without token transmission after initial registration. See [Runtime Broker Auth](auth/runtime-broker-auth.md) for details.
 *   **Runtime Providers:** Access to one or more runtimes:
     *   **Docker/Container:** Local container orchestration
     *   **Kubernetes:** Cluster-based pod orchestration
     *   **Apple:** macOS virtualization framework
-*   **Profile Execution:** Hosts advertise which grove profiles they can execute based on available runtimes.
+*   **Profile Execution:** Brokers advertise which grove profiles they can execute based on available runtimes.
 *   **Operational Modes:** (See Section 1)
     *   **Connected:** Hub has full agent lifecycle control
     *   **Read-Only:** Hub can observe but not control
@@ -182,21 +182,21 @@ The browser-based dashboard for user interaction. Detailed specifications are in
     *   Git remote URL (normalized)
     *   Grove name/slug
     *   Available profiles and runtimes
-    *   Host identifier and capabilities
+    *   Broker identifier and capabilities
 4.  **Scion Hub**:
     *   Looks up existing grove by git remote URL.
-    *   If found: adds this host as a contributor to the existing grove.
-    *   If not found: creates a new grove record with this host as the initial contributor.
-    *   If the grove has no `defaultRuntimeBrokerId`, sets this host as the default.
-    *   Returns grove ID and host authentication token.
+    *   If found: adds this broker as a contributor to the existing grove.
+    *   If not found: creates a new grove record with this broker as the initial contributor.
+    *   If the grove has no `defaultRuntimeBrokerId`, sets this broker as the default.
+    *   Returns grove ID and broker authentication token.
 5.  **Runtime Broker** stores the grove ID and token for subsequent operations.
 
 ### 5.2. Agent Creation (Hosted/Distributed)
 1.  **User** requests agent creation via Scion Hub API, specifying grove and optionally a `runtimeBrokerId`.
 2.  **Scion Hub** resolves the runtime broker:
     *   If `runtimeBrokerId` is explicitly provided, verify it's a valid, online contributor to the grove.
-    *   Otherwise, use the grove's `defaultRuntimeBrokerId` (set when the first host registers).
-    *   If the resolved host is unavailable or no host is configured, return an error with a list of available alternatives.
+    *   Otherwise, use the grove's `defaultRuntimeBrokerId` (set when the first broker registers).
+    *   If the resolved broker is unavailable or no broker is configured, return an error with a list of available alternatives.
 3.  **Scion Hub**:
     *   Creates `Agent` record with the resolved `runtimeBrokerId` (Status: `PENDING`).
     *   Sends `CreateAgent` command to the Runtime Broker.
@@ -214,24 +214,24 @@ sequenceDiagram
     participant User as User/CLI
     participant Hub as Scion Hub
     participant DB as Database
-    participant Host as Runtime Broker
+    participant Broker as Runtime Broker
 
     User->>Hub: POST /agents (groveId, [runtimeBrokerId])
     Hub->>DB: Get grove + contributors
-    DB-->>Hub: Grove (defaultRuntimeBrokerId) + online hosts
+    DB-->>Hub: Grove (defaultRuntimeBrokerId) + online brokers
 
     alt runtimeBrokerId specified
-        Hub->>Hub: Verify host is online contributor
+        Hub->>Hub: Verify broker is online contributor
     else use default
         Hub->>Hub: Use grove.defaultRuntimeBrokerId
     end
 
-    alt host unavailable
-        Hub-->>User: 422/503 + availableHosts list
-    else host available
+    alt broker unavailable
+        Hub-->>User: 422/503 + availableBrokers list
+    else broker available
         Hub->>DB: Create agent (status: pending, runtimeBrokerId)
-        Hub->>Host: DispatchAgentCreate
-        Host-->>Hub: Success
+        Hub->>Broker: DispatchAgentCreate
+        Broker-->>Hub: Success
         Hub->>DB: Update status: provisioning
         Hub-->>User: 201 Created + agent
     end
@@ -268,7 +268,7 @@ Environment variables and secrets are resolved using a hierarchical scope system
 │      └── Variables/secrets defined for the grove                │
 │                                                                  │
 │   3. Runtime Broker Scope                                         │
-│      └── Variables/secrets defined for the specific host        │
+│      └── Variables/secrets defined for the specific broker      │
 │                                                                  │
 │   4. Agent Config (highest priority)                            │
 │      └── Variables explicitly set in agent creation request     │
@@ -280,7 +280,7 @@ Environment variables and secrets are resolved using a hierarchical scope system
 ```
 User scope:      API_KEY=user-key, LOG_LEVEL=info
 Grove scope:     API_KEY=grove-key, PROJECT_ID=my-project
-Host scope:      LOG_LEVEL=debug
+Broker scope:    LOG_LEVEL=debug
 Agent config:    PROJECT_ID=override
 
 Result:          API_KEY=grove-key, LOG_LEVEL=debug, PROJECT_ID=override
@@ -297,7 +297,7 @@ Result:          API_KEY=grove-key, LOG_LEVEL=debug, PROJECT_ID=override
   "value": "string",           // Variable value
 
   "scope": "string",           // user, grove, runtime_broker
-  "scopeId": "string",         // ID of the scoped entity (userId, groveId, hostId)
+  "scopeId": "string",         // ID of the scoped entity (userId, groveId, brokerId)
 
   "description": "string",     // Optional description
   "sensitive": false,          // If true, value is masked in UI/logs
@@ -370,11 +370,11 @@ scion hub env get --grove                    # List grove variables
 scion hub env clear --grove FOO              # Delete grove variable
 
 # Runtime Broker scope
-scion hub env set --host <host-id> FOO bar   # Explicit host ID
-scion hub env set --host FOO bar             # Use current machine as host
-scion hub env get --host <host-id> FOO       # Get host variable
-scion hub env get --host                     # List host variables
-scion hub env clear --host FOO               # Delete host variable
+scion hub env set --broker <broker-id> FOO bar  # Explicit broker ID
+scion hub env set --broker FOO bar              # Use current machine as broker
+scion hub env get --broker <broker-id> FOO      # Get broker variable
+scion hub env get --broker                      # List broker variables
+scion hub env clear --broker FOO                # Delete broker variable
 ```
 
 #### Secrets
@@ -394,16 +394,16 @@ scion hub secret get --grove                 # List grove secrets
 scion hub secret clear --grove API_KEY       # Delete grove secret
 
 # Runtime Broker scope
-scion hub secret set --host API_KEY <value>  # Set host-scoped secret
-scion hub secret get --host                  # List host secrets
-scion hub secret clear --host API_KEY        # Delete host secret
+scion hub secret set --broker API_KEY <value>  # Set broker-scoped secret
+scion hub secret get --broker                  # List broker secrets
+scion hub secret clear --broker API_KEY        # Delete broker secret
 ```
 
-#### Grove and Host Inference
+#### Grove and Broker Inference
 
-When `--grove` or `--host` is specified without an ID:
+When `--grove` or `--broker` is specified without an ID:
 *   **Grove:** Inferred from the current git repository's remote URL, or from `.scion/settings.yaml` if a grove ID is stored locally
-*   **Host:** Inferred from the current machine's hostname or stored host ID in local settings
+*   **Broker:** Inferred from the current machine's hostname or stored broker ID in local settings
 
 ### 6.5. Agent Injection Flow
 
@@ -414,19 +414,19 @@ sequenceDiagram
     participant User as User/CLI
     participant Hub as Scion Hub
     participant DB as Database
-    participant Host as Runtime Broker
+    participant Broker as Runtime Broker
     participant Agent as Agent
 
     User->>Hub: POST /agents (groveId, config)
     Hub->>DB: Get user env/secrets
     Hub->>DB: Get grove env/secrets
-    Hub->>DB: Get host env/secrets
+    Hub->>DB: Get broker env/secrets
     Hub->>Hub: Merge by scope priority
     Hub->>Hub: Apply agent config overrides
-    Hub->>Host: DispatchAgentCreate (merged env)
-    Host->>Agent: Start container with env vars
-    Agent-->>Host: Running
-    Host-->>Hub: Status: running
+    Hub->>Broker: DispatchAgentCreate (merged env)
+    Broker->>Agent: Start container with env vars
+    Agent-->>Broker: Running
+    Broker-->>Hub: Status: running
     Hub-->>User: 201 Created
 ```
 
@@ -443,13 +443,13 @@ The merged environment is passed to the Runtime Broker as part of the `CreateAge
 
 ### 6.7. Access Control
 
-| Operation | User Scope | Grove Scope | Host Scope |
-|-----------|------------|-------------|------------|
-| Create/Update | Owner only | Grove owner/admin | Host owner/admin |
-| Read (env) | Owner only | Grove members | Host contributors |
-| Read (secret metadata) | Owner only | Grove members | Host contributors |
+| Operation | User Scope | Grove Scope | Broker Scope |
+|-----------|------------|-------------|--------------|
+| Create/Update | Owner only | Grove owner/admin | Broker owner/admin |
+| Read (env) | Owner only | Grove members | Broker contributors |
+| Read (secret metadata) | Owner only | Grove members | Broker contributors |
 | Read (secret value) | Never via API | Never via API | Never via API |
-| Delete | Owner only | Grove owner/admin | Host owner/admin |
+| Delete | Owner only | Grove owner/admin | Broker owner/admin |
 
 ## 7. Migration & Compatibility
 *   **Manager Interface:** The `pkg/agent.Manager` will be split/refined to support remote execution.

@@ -18,7 +18,7 @@ This document provides an analysis of the hosted architecture implementation, co
 | **Store Layer** | `server-implementation-design.md` | `pkg/store/` | ✅ Complete |
 | **SQLite Store** | `server-implementation-design.md` | `pkg/store/sqlite/` | ✅ Complete |
 | **Hub Client Library** | `client-design.md` | `pkg/hubclient/` | ✅ Complete |
-| **Host Client Library** | `client-design.md` | `pkg/brokerclient/` | ✅ Complete |
+| **Broker Client Library** | `client-design.md` | `pkg/brokerclient/` | ✅ Complete |
 | **Dev Auth** | `dev-auth.md` | `pkg/apiclient/devauth.go` | ✅ Complete |
 | **Server CLI** | - | `cmd/server.go` | ✅ Complete |
 | **Hub CLI** | - | `cmd/hub.go` | ✅ Complete |
@@ -40,11 +40,11 @@ This document provides an analysis of the hosted architecture implementation, co
 | `GET /api/v1/groves/:id` | ✅ | Get grove |
 | `PATCH /api/v1/groves/:id` | ✅ | Update grove |
 | `DELETE /api/v1/groves/:id` | ✅ | Delete grove |
-| `GET /api/v1/runtime-brokers` | ✅ | List hosts |
-| `POST /api/v1/runtime-brokers` | ✅ | Register host |
-| `GET /api/v1/runtime-brokers/:id` | ✅ | Get host |
-| `PATCH /api/v1/runtime-brokers/:id` | ✅ | Update host |
-| `DELETE /api/v1/runtime-brokers/:id` | ✅ | Deregister host |
+| `GET /api/v1/runtime-brokers` | ✅ | List brokers |
+| `POST /api/v1/runtime-brokers` | ✅ | Register broker |
+| `GET /api/v1/runtime-brokers/:id` | ✅ | Get broker |
+| `PATCH /api/v1/runtime-brokers/:id` | ✅ | Update broker |
+| `DELETE /api/v1/runtime-brokers/:id` | ✅ | Deregister broker |
 | `GET /api/v1/templates` | ✅ | List templates |
 | `POST /api/v1/templates` | ✅ | Create template |
 | `GET /api/v1/templates/:id` | ✅ | Get template |
@@ -64,7 +64,7 @@ This document provides an analysis of the hosted architecture implementation, co
 | Endpoint | Handlers | Notes |
 |----------|----------|-------|
 | `GET /healthz` | ✅ | Health check |
-| `GET /api/v1/info` | ✅ | Host info |
+| `GET /api/v1/info` | ✅ | Broker info |
 | `GET /api/v1/agents` | ✅ | List local agents |
 | `POST /api/v1/agents` | ✅ | Create agent |
 | `GET /api/v1/agents/:id` | ✅ | Get agent |
@@ -79,14 +79,14 @@ All store interfaces defined in `pkg/store/store.go`:
 
 | Store | Interface | SQLite Impl | Notes |
 |-------|-----------|-------------|-------|
-| `AgentStore` | ✅ | ✅ | CRUD + filtering by grove/host/status |
+| `AgentStore` | ✅ | ✅ | CRUD + filtering by grove/broker/status |
 | `GroveStore` | ✅ | ✅ | CRUD + unique remote URL |
 | `RuntimeBrokerStore` | ✅ | ✅ | CRUD + filtering by grove |
 | `TemplateStore` | ✅ | ✅ | CRUD with unique name |
 | `UserStore` | ✅ | ✅ | CRUD + lookup by external ID |
 | `GroveContributorStore` | ✅ | ✅ | Many-to-many grove/user |
-| `EnvVarStore` | ✅ | ✅ | Scoped by user/grove/host |
-| `SecretStore` | ✅ | ✅ | Scoped by user/grove/host |
+| `EnvVarStore` | ✅ | ✅ | Scoped by user/grove/broker |
+| `SecretStore` | ✅ | ✅ | Scoped by user/grove/broker |
 
 ### 1.4 Client Libraries
 
@@ -103,7 +103,7 @@ All store interfaces defined in `pkg/store/store.go`:
 | `SecretService` | ✅ | List, Set, Delete with scope |
 | `AuthService` | ✅ | WhoAmI |
 
-#### Host Client (`pkg/brokerclient/`)
+#### Broker Client (`pkg/brokerclient/`)
 
 | Service | Implementation | Notes |
 |---------|----------------|-------|
@@ -162,20 +162,20 @@ All store interfaces defined in `pkg/store/store.go`:
 **Recommendation:** Add `terminated` state for agents that have been explicitly deleted or reached a non-recoverable end state.
 
 #### 2.1.2 Control Channel
-**Design:** `hosted-architecture.md` specifies WebSocket-based control channel for Hub-to-Host communication, essential for NAT traversal.
+**Design:** `hosted-architecture.md` specifies WebSocket-based control channel for Hub-to-Broker communication, essential for NAT traversal.
 
 **Implementation:** No WebSocket handlers in `pkg/hub/` or `pkg/runtimebroker/`.
 
 **Gap:** Remote runtime brokers behind NAT cannot receive commands from Hub.
 
-**Recommendation:** Implement control channel as high priority for multi-host deployments.
+**Recommendation:** Implement control channel as high priority for multi-broker deployments.
 
 #### 2.1.3 Agent Dispatcher
 **Design:** Hub API should dispatch create/start/stop requests to appropriate Runtime Broker.
 
 **Implementation:** `pkg/hub/server.go` defines `AgentDispatcher` interface with `DispatchAgentCreate` method. `cmd/server.go` implements a local dispatcher adapter.
 
-**Gap:** Dispatcher only works for co-located Hub+Host. No remote dispatch capability.
+**Gap:** Dispatcher only works for co-located Hub+Broker. No remote dispatch capability.
 
 **Recommendation:** Implement HTTP-based dispatcher for direct reachability, WebSocket for NAT traversal.
 
@@ -192,7 +192,7 @@ All store interfaces defined in `pkg/store/store.go`:
 - Return 409 Conflict for invalid state transitions
 
 #### 2.2.2 Grove Registration Race Conditions
-**Risk:** Multiple hosts registering the same grove URL simultaneously.
+**Risk:** Multiple brokers registering the same grove URL simultaneously.
 
 **Current State:** SQLite unique constraint will reject duplicates, but error handling may be inconsistent.
 
@@ -201,15 +201,15 @@ All store interfaces defined in `pkg/store/store.go`:
 - Return existing grove ID if already registered
 - Add contributor relationship atomically
 
-#### 2.2.3 Orphaned Agents on Host Crash
-**Risk:** Runtime host crashes with running agents; Hub still shows them as `running`.
+#### 2.2.3 Orphaned Agents on Broker Crash
+**Risk:** Runtime broker crashes with running agents; Hub still shows them as `running`.
 
 **Current State:** No heartbeat or health check mechanism.
 
 **Recommendation:**
-- Implement host heartbeat (periodic ping to Hub)
+- Implement broker heartbeat (periodic ping to Hub)
 - Mark agents as `unknown` after heartbeat timeout
-- Provide reconciliation endpoint for host restart
+- Provide reconciliation endpoint for broker restart
 
 #### 2.2.4 Secret Scope Resolution
 **Risk:** Ambiguous precedence when same secret key exists at multiple scopes.
@@ -218,7 +218,7 @@ All store interfaces defined in `pkg/store/store.go`:
 
 **Recommendation:**
 - Document scope resolution order explicitly in API
-- Implement `GetResolvedSecrets(userID, groveID, hostID)` method
+- Implement `GetResolvedSecrets(userID, groveID, brokerID)` method
 - Return scope source in response for debugging
 
 #### 2.2.5 Environment Variable Expansion
@@ -295,11 +295,11 @@ All store interfaces defined in `pkg/store/store.go`:
 - Add optimistic concurrency (ETag/version)
 - Return proper 409 Conflict for invalid transitions
 
-#### M1.2: Host Health Monitoring
+#### M1.2: Broker Health Monitoring
 - Implement heartbeat endpoint on Runtime Broker
 - Add heartbeat tracking in Hub store
 - Mark agents as `unknown` on heartbeat timeout
-- Add host reconciliation on reconnect
+- Add broker reconciliation on reconnect
 
 #### M1.3: Error Handling Standardization
 - Define standard error response format
@@ -307,22 +307,22 @@ All store interfaces defined in `pkg/store/store.go`:
 - Add request ID for tracing
 - Improve error messages for common failures
 
-### Phase 2: Multi-Host Support
+### Phase 2: Multi-Broker Support
 
 #### M2.1: Remote Agent Dispatch
-- Implement HTTP-based dispatcher for reachable hosts
-- Add host connectivity check before dispatch
+- Implement HTTP-based dispatcher for reachable brokers
+- Add broker connectivity check before dispatch
 - Handle dispatch failures with proper error responses
 
 #### M2.2: Control Channel (WebSocket) ✅ COMPLETE
 - ✅ Implement WebSocket upgrade on Hub `/api/v1/runtime-brokers/connect`
-- ✅ Add host authentication on connect (HMAC)
+- ✅ Add broker authentication on connect (HMAC)
 - ✅ Implement HTTP tunneling protocol
 - ✅ Handle reconnection with exponential backoff
 - See `runtimebroker-websocket.md` Section 9 for implementation details
 
 #### M2.3: NAT Traversal ✅ COMPLETE
-- ✅ Host initiates connection to Hub
+- ✅ Broker initiates connection to Hub
 - ✅ Hub tunnels HTTP requests through control channel
 - ✅ Stream multiplexing for PTY sessions
 
@@ -411,7 +411,7 @@ All store interfaces defined in `pkg/store/store.go`:
 
 1. **Agent State Transitions** - Add validation to prevent invalid state changes (e.g., starting already-running agent).
 
-2. **Host Heartbeat** - Implement basic heartbeat to detect host disconnection and stale agent states.
+2. **Broker Heartbeat** - Implement basic heartbeat to detect broker disconnection and stale agent states.
 
 3. **Error Response Consistency** - Standardize error format across all API endpoints.
 
@@ -427,7 +427,7 @@ These five items address the most critical gaps between "system that compiles" a
 
 ### What's Working Well
 
-1. **Grove-Centric Design** - The decision to register groves (projects) rather than hosts simplifies the mental model and matches developer workflows.
+1. **Grove-Centric Design** - The decision to register groves (projects) rather than brokers simplifies the mental model and matches developer workflows.
 
 2. **Store Abstraction** - Clean separation between store interface and SQLite implementation allows future database swaps.
 

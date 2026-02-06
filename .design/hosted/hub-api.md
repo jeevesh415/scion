@@ -8,7 +8,7 @@
 This document specifies the REST API for the **Scion Hub** (State Server), the centralized service that manages agent state, groves, runtime brokers, templates, and users in the distributed Scion architecture.
 
 The Hub API provides:
-- **Grove-Centric Registration**: Groves are the primary unit of registration. Runtime hosts register the groves they serve, not themselves as standalone entities.
+- **Grove-Centric Registration**: Groves are the primary unit of registration. Runtime brokers register the groves they serve, not themselves as standalone entities.
 - **Git Remote Uniqueness**: Groves associated with git repositories are uniquely identified by their normalized git remote URL.
 - **Agent Lifecycle Management**: CRUD operations for agents across distributed runtime brokers
 - **Distributed Groves**: A single grove can span multiple runtime brokers (e.g., multiple developers on the same project)
@@ -118,19 +118,19 @@ Represents a project or logical grouping of agents. **Groves are the primary uni
   "labels": {"key": "value"},
   "annotations": {"key": "value"},
 
-  "contributors": [            // Runtime hosts contributing to this grove
+  "contributors": [            // Runtime brokers contributing to this grove
     {
-      "hostId": "string",
-      "hostName": "string",
+      "brokerId": "string",
+      "brokerName": "string",
       "mode": "connected",     // connected, read-only
       "status": "online",      // online, offline
-      "profiles": ["docker", "k8s-dev"],  // Profiles this host can execute
+      "profiles": ["docker", "k8s-dev"],  // Profiles this broker can execute
       "lastSeen": "2025-01-24T10:29:00Z"
     }
   ],
 
   "agentCount": 5,             // Total agents across all contributors (computed)
-  "activeHostCount": 2         // Number of online contributor hosts (computed)
+  "activeBrokerCount": 2       // Number of online contributor brokers (computed)
 }
 ```
 
@@ -150,7 +150,7 @@ Git remote URLs are normalized before storage to ensure consistent matching:
 
 ### 2.3 RuntimeBroker
 
-Represents a compute node that contributes to one or more groves. **Runtime hosts are not the primary registration unit**—they register the groves they serve. The Hub tracks hosts primarily for routing and health monitoring.
+Represents a compute node that contributes to one or more groves. **Runtime brokers are not the primary registration unit**—they register the groves they serve. The Hub tracks brokers primarily for routing and health monitoring.
 
 ```json
 {
@@ -160,7 +160,7 @@ Represents a compute node that contributes to one or more groves. **Runtime host
 
   "type": "string",            // Primary runtime type: docker, kubernetes, apple
   "mode": "string",            // Operational mode: connected, read-only
-  "version": "string",         // Scion host agent version (for compatibility)
+  "version": "string",         // Scion broker agent version (for compatibility)
 
   "status": "string",          // online, offline, degraded
   "connectionState": "string", // Control channel: connected, disconnected
@@ -174,7 +174,7 @@ Represents a compute node that contributes to one or more groves. **Runtime host
     "attach": true             // Supports direct attach
   },
 
-  "runtimes": [                // Available container runtimes on this host
+  "runtimes": [                // Available container runtimes on this broker
     {
       "type": "docker",
       "available": true
@@ -194,12 +194,12 @@ Represents a compute node that contributes to one or more groves. **Runtime host
     "agentsCapacity": 10       // Maximum agent capacity
   },
 
-  "groves": [                  // Groves this host contributes to
+  "groves": [                  // Groves this broker contributes to
     {
       "groveId": "string",
       "groveName": "string",
-      "profiles": ["docker", "k8s-dev"],  // Profiles this host can run for this grove
-      "agentCount": 2          // Agents running for this grove on this host
+      "profiles": ["docker", "k8s-dev"],  // Profiles this broker can run for this grove
+      "agentCount": 2          // Agents running for this grove on this broker
     }
   ],
 
@@ -531,7 +531,7 @@ Upsert endpoint for Runtime Brokers in read-only mode to register locally-create
   "name": "string",
   "groveId": "string",
   "template": "string",
-  "runtimeBrokerId": "string",   // The reporting host
+  "runtimeBrokerId": "string",   // The reporting broker
 
   "status": "string",
   "containerStatus": "string",
@@ -552,7 +552,7 @@ Upsert endpoint for Runtime Brokers in read-only mode to register locally-create
 ```
 
 **Headers (HMAC Authentication):**
-- `X-Scion-Broker-ID`: Runtime host identifier
+- `X-Scion-Broker-ID`: Runtime broker identifier
 - `X-Scion-Timestamp`: Request timestamp (RFC 3339)
 - `X-Scion-Nonce`: Random nonce for replay prevention
 - `X-Scion-Signature`: HMAC-SHA256 signature
@@ -571,7 +571,7 @@ See [Runtime Broker Auth](auth/runtime-broker-auth.md) for the complete authenti
 
 ## 4. Grove Endpoints
 
-Groves are the primary unit of Hub registration. Runtime hosts register groves, and the Hub enforces git remote uniqueness.
+Groves are the primary unit of Hub registration. Runtime brokers register groves, and the Hub enforces git remote uniqueness.
 
 ### 4.1 List Groves
 
@@ -584,7 +584,7 @@ GET /api/v1/groves
 |-----------|------|-------------|
 | `visibility` | string | Filter by visibility |
 | `gitRemote` | string | Filter by git remote (exact or prefix match) |
-| `hostId` | string | Filter by contributing host |
+| `brokerId` | string | Filter by contributing broker |
 | `labels` | string | Label selector |
 | `limit` | int | Maximum results |
 | `cursor` | string | Pagination cursor |
@@ -602,19 +602,19 @@ POST /api/v1/groves/register
 ```
 
 This is the **primary registration endpoint** for runtime brokers. It performs an upsert based on the git remote URL:
-- If a grove with the same git remote exists: adds the host as a contributor
-- If no matching grove exists: creates a new grove with this host as the initial contributor
+- If a grove with the same git remote exists: adds the broker as a contributor
+- If no matching grove exists: creates a new grove with this broker as the initial contributor
 
 **Request Body:**
 ```json
 {
   "name": "string",            // Grove display name
   "gitRemote": "string",       // Git remote URL (will be normalized)
-  "path": "string",            // Local filesystem path on the host
+  "path": "string",            // Local filesystem path on the broker
 
-  "host": {                    // Host information
-    "id": "string",            // Existing host ID (optional, for reconnection)
-    "name": "string",          // Host display name
+  "broker": {                  // Broker information
+    "id": "string",            // Existing broker ID (optional, for reconnection)
+    "name": "string",          // Broker display name
     "version": "string",       // Scion version
     "capabilities": {
       "webPty": true,
@@ -628,7 +628,7 @@ This is the **primary registration endpoint** for runtime brokers. It performs a
     "supportedHarnesses": ["claude", "gemini"]
   },
 
-  "profiles": ["docker", "k8s-dev"],  // Profiles this host can execute for this grove
+  "profiles": ["docker", "k8s-dev"],  // Profiles this broker can execute for this grove
   "mode": "connected",         // connected, read-only
 
   "labels": {"key": "value"},
@@ -640,22 +640,22 @@ This is the **primary registration endpoint** for runtime brokers. It performs a
 ```json
 {
   "grove": Grove,
-  "host": RuntimeBroker,
+  "broker": RuntimeBroker,
   "created": true,             // Whether grove was newly created (vs linked)
-  "hostToken": "string"        // Authentication token for this host
+  "brokerToken": "string"      // Authentication token for this broker
 }
 ```
 
 **Error Cases:**
 - `409 Conflict`: Git remote already registered by a different owner (use link endpoint instead)
 
-### 4.4 Create Grove (Without Host)
+### 4.4 Create Grove (Without Broker)
 
 ```
 POST /api/v1/groves
 ```
 
-Creates a grove record without an initial contributing host. Used for pre-provisioning or Hub-managed groves.
+Creates a grove record without an initial contributing broker. Used for pre-provisioning or Hub-managed groves.
 
 **Request Body:**
 ```json
@@ -706,8 +706,8 @@ Returns runtime brokers contributing to this grove.
 {
   "contributors": [
     {
-      "hostId": "string",
-      "hostName": "string",
+      "brokerId": "string",
+      "brokerName": "string",
       "mode": "connected",
       "status": "online",
       "profiles": ["docker", "k8s-dev"],
@@ -721,10 +721,10 @@ Returns runtime brokers contributing to this grove.
 ### 4.9 Remove Grove Contributor
 
 ```
-DELETE /api/v1/groves/{groveId}/contributors/{hostId}
+DELETE /api/v1/groves/{groveId}/contributors/{brokerId}
 ```
 
-Removes a host as a contributor to this grove. Does not affect agents already running on that host.
+Removes a broker as a contributor to this grove. Does not affect agents already running on that broker.
 
 ### 4.10 Grove Settings
 
@@ -762,7 +762,7 @@ PUT /api/v1/groves/{groveId}/settings
 
 ## 5. Runtime Broker Endpoints
 
-Runtime hosts are tracked by the Hub for routing and health monitoring, but **grove registration is the primary mechanism** for hosts to connect to the Hub. These endpoints provide administrative views and operations on known hosts.
+Runtime brokers are tracked by the Hub for routing and health monitoring, but **grove registration is the primary mechanism** for brokers to connect to the Hub. These endpoints provide administrative views and operations on known brokers.
 
 ### 5.1 List Runtime Brokers
 
@@ -781,16 +781,16 @@ GET /api/v1/runtime-brokers
 ### 5.2 Get Runtime Broker
 
 ```
-GET /api/v1/runtime-brokers/{hostId}
+GET /api/v1/runtime-brokers/{brokerId}
 ```
 
-### 5.3 List Host Groves
+### 5.3 List Broker Groves
 
 ```
-GET /api/v1/runtime-brokers/{hostId}/groves
+GET /api/v1/runtime-brokers/{brokerId}/groves
 ```
 
-Returns groves this host contributes to.
+Returns groves this broker contributes to.
 
 **Response:**
 ```json
@@ -811,23 +811,23 @@ Returns groves this host contributes to.
 ### 5.4 Update Runtime Broker
 
 ```
-PATCH /api/v1/runtime-brokers/{hostId}
+PATCH /api/v1/runtime-brokers/{brokerId}
 ```
 
-Updates host metadata (name, labels, etc.). Host capabilities and runtimes are updated via grove registration.
+Updates broker metadata (name, labels, etc.). Broker capabilities and runtimes are updated via grove registration.
 
 ### 5.5 Deregister Runtime Broker
 
 ```
-DELETE /api/v1/runtime-brokers/{hostId}
+DELETE /api/v1/runtime-brokers/{brokerId}
 ```
 
-Removes the host from all groves and deletes its record. Agents running on this host are marked as orphaned.
+Removes the broker from all groves and deletes its record. Agents running on this broker are marked as orphaned.
 
 ### 5.6 Runtime Broker Heartbeat
 
 ```
-POST /api/v1/runtime-brokers/{hostId}/heartbeat
+POST /api/v1/runtime-brokers/{brokerId}/heartbeat
 ```
 
 Internal endpoint for runtime brokers to report health.
@@ -858,7 +858,7 @@ Internal endpoint for runtime brokers to report health.
 ```
 
 **Headers (HMAC Authentication):**
-- `X-Scion-Broker-ID`: Runtime host identifier
+- `X-Scion-Broker-ID`: Runtime broker identifier
 - `X-Scion-Timestamp`: Request timestamp (RFC 3339)
 - `X-Scion-Nonce`: Random nonce for replay prevention
 - `X-Scion-Signature`: HMAC-SHA256 signature
@@ -1209,14 +1209,14 @@ DELETE /api/v1/groves/{groveId}/secrets/{key}
 
 #### Runtime Broker Scope
 ```
-GET    /api/v1/runtime-brokers/{hostId}/env
-GET    /api/v1/runtime-brokers/{hostId}/env/{key}
-PUT    /api/v1/runtime-brokers/{hostId}/env/{key}
-DELETE /api/v1/runtime-brokers/{hostId}/env/{key}
-GET    /api/v1/runtime-brokers/{hostId}/secrets
-GET    /api/v1/runtime-brokers/{hostId}/secrets/{key}
-PUT    /api/v1/runtime-brokers/{hostId}/secrets/{key}
-DELETE /api/v1/runtime-brokers/{hostId}/secrets/{key}
+GET    /api/v1/runtime-brokers/{brokerId}/env
+GET    /api/v1/runtime-brokers/{brokerId}/env/{key}
+PUT    /api/v1/runtime-brokers/{brokerId}/env/{key}
+DELETE /api/v1/runtime-brokers/{brokerId}/env/{key}
+GET    /api/v1/runtime-brokers/{brokerId}/secrets
+GET    /api/v1/runtime-brokers/{brokerId}/secrets/{key}
+PUT    /api/v1/runtime-brokers/{brokerId}/secrets/{key}
+DELETE /api/v1/runtime-brokers/{brokerId}/secrets/{key}
 ```
 
 ---
@@ -1348,7 +1348,7 @@ All error responses follow a consistent format:
 | 422 | `unprocessable` | Valid request but cannot be processed |
 | 429 | `rate_limited` | Too many requests |
 | 500 | `internal_error` | Server error |
-| 502 | `runtime_error` | Runtime host communication failed |
+| 502 | `runtime_error` | Runtime broker communication failed |
 | 503 | `unavailable` | Service temporarily unavailable |
 
 ---
@@ -1372,9 +1372,9 @@ All error responses follow a consistent format:
    X-Scion-Agent-Token: <token>
    ```
 
-4. **Host HMAC Authentication** (Runtime Broker ↔ Hub)
+4. **Broker HMAC Authentication** (Runtime Broker ↔ Hub)
    ```
-   X-Scion-Broker-ID: <host-id>
+   X-Scion-Broker-ID: <broker-id>
    X-Scion-Timestamp: <RFC 3339 timestamp>
    X-Scion-Nonce: <base64-encoded nonce>
    X-Scion-Signature: <HMAC-SHA256 signature>
@@ -1404,23 +1404,23 @@ Role-based access control:
 
 ### 10.4 Token and Secret Lifecycle
 
-#### Host Shared Secrets (HMAC Authentication)
+#### Broker Shared Secrets (HMAC Authentication)
 
 Runtime Brokers authenticate with the Hub using HMAC-based request signing. See [Runtime Broker Auth](auth/runtime-broker-auth.md) for the complete specification.
 
-1. **Registration:** User creates a host record, receives a short-lived join token
-2. **Join:** Host exchanges join token for a shared secret (one-time transmission)
-3. **Storage:** Host stores secret securely (`~/.scion/broker-credentials.json` or secret manager)
+1. **Registration:** User creates a broker record, receives a short-lived join token
+2. **Join:** Broker exchanges join token for a shared secret (one-time transmission)
+3. **Storage:** Broker stores secret securely (`~/.scion/broker-credentials.json` or secret manager)
 4. **Authentication:** All subsequent requests are HMAC-signed using the shared secret
 5. **Rotation:** Hub initiates secret rotation with grace period for dual-secret validation:
    ```
-   POST /api/v1/secrets/rotate (Hub → Host, over authenticated WebSocket)
+   POST /api/v1/secrets/rotate (Hub → Broker, over authenticated WebSocket)
    ```
-6. **Revocation:** Deleting a host immediately invalidates the shared secret
+6. **Revocation:** Deleting a broker immediately invalidates the shared secret
 
 #### Agent Tokens
 
-1. **Generation:** When the Hub instructs a host to create an agent, it generates a short-lived bootstrap token (valid 5 minutes).
+1. **Generation:** When the Hub instructs a broker to create an agent, it generates a short-lived bootstrap token (valid 5 minutes).
 2. **Bootstrap Exchange:** The agent's `sciontool` exchanges the bootstrap token for a session token:
    ```
    POST /api/v1/auth/agent-token-exchange
@@ -1455,11 +1455,11 @@ Runtime Brokers authenticate with the Hub using HMAC-based request signing. See 
 
 ---
 
-## 11. Host Control Plane Protocol
+## 11. Broker Control Plane Protocol
 
-Runtime Brokers often run behind NAT/firewalls (developer laptops, on-premise servers). The Hub cannot initiate HTTP connections to these hosts. Instead, **Runtime Brokers establish a persistent WebSocket control channel to the Hub**.
+Runtime Brokers often run behind NAT/firewalls (developer laptops, on-premise servers). The Hub cannot initiate HTTP connections to these brokers. Instead, **Runtime Brokers establish a persistent WebSocket control channel to the Hub**.
 
-The control channel is established **after grove registration**. The host must first register at least one grove via the REST API, then connect the control channel for real-time communication.
+The control channel is established **after grove registration**. The broker must first register at least one grove via the REST API, then connect the control channel for real-time communication.
 
 ### 11.1 Control Channel Architecture
 
@@ -1468,13 +1468,13 @@ The control channel is established **after grove registration**. The host must f
 │   Scion Hub     │                    │  Runtime Broker   │
 │                 │◄───────────────────│  (behind NAT)   │
 │                 │   WebSocket        │                 │
-│  Control Plane  │   Control Channel  │  Host Agent     │
-│                 │   (Host-initiated) │                 │
+│  Control Plane  │   Control Channel  │  Broker Agent   │
+│                 │(Broker-initiated)  │                 │
 └─────────────────┘                    └─────────────────┘
         │                                      │
-        │  Commands (Hub → Host)               │
+        │  Commands (Hub → Broker)             │
         │  ◄────────────────────               │
-        │  Events (Host → Hub)                 │
+        │  Events (Broker → Hub)               │
         │  ────────────────────►               │
         │                                      │
         │  Multiplexed Streams                 │
@@ -1488,23 +1488,23 @@ The control channel is established **after grove registration**. The host must f
 WS /api/v1/runtime-brokers/connect
 ```
 
-Runtime Broker initiates a persistent WebSocket connection to the Hub. The host must have already completed the registration flow and obtained a shared secret.
+Runtime Broker initiates a persistent WebSocket connection to the Hub. The broker must have already completed the registration flow and obtained a shared secret.
 
 **Headers (HMAC Authentication):**
-- `X-Scion-Broker-ID`: Host identifier
+- `X-Scion-Broker-ID`: Broker identifier
 - `X-Scion-Timestamp`: Request timestamp (RFC 3339)
 - `X-Scion-Nonce`: Random nonce for replay prevention
 - `X-Scion-Signature`: HMAC-SHA256 signature of the WebSocket upgrade request
 
-Once the WebSocket is established with HMAC authentication, Hub→Host commands over the connection use session-based trust (no per-message signing required). Host→Hub requests that require authorization must use standard HMAC-authenticated HTTP requests. See [Runtime Broker Auth](auth/runtime-broker-auth.md) Section 10.5 for details.
+Once the WebSocket is established with HMAC authentication, Hub→Broker commands over the connection use session-based trust (no per-message signing required). Broker→Hub requests that require authorization must use standard HMAC-authenticated HTTP requests. See [Runtime Broker Auth](auth/runtime-broker-auth.md) Section 10.5 for details.
 
-**Initial Handshake Message (Host → Hub):**
+**Initial Handshake Message (Broker → Hub):**
 ```json
 {
   "type": "connect",
-  "hostId": "string",
+  "brokerId": "string",
   "version": "1.2.3",
-  "groves": [                  // Groves this host is contributing to
+  "groves": [                  // Groves this broker is contributing to
     {
       "groveId": "string",
       "mode": "connected",
@@ -1524,11 +1524,11 @@ Once the WebSocket is established with HMAC authentication, Hub→Host commands 
 }
 ```
 
-**Connection Acknowledgment (Hub → Host):**
+**Connection Acknowledgment (Hub → Broker):**
 ```json
 {
   "type": "connected",
-  "hostId": "string",
+  "brokerId": "string",
   "hubTime": "2025-01-24T10:00:00Z",
   "groves": [                  // Confirmed grove associations
     {
@@ -1540,7 +1540,7 @@ Once the WebSocket is established with HMAC authentication, Hub→Host commands 
 }
 ```
 
-### 11.3 Command Messages (Hub → Host)
+### 11.3 Command Messages (Hub → Broker)
 
 The Hub sends commands to Runtime Brokers over the control channel.
 
@@ -1617,7 +1617,7 @@ The Hub sends commands to Runtime Brokers over the control channel.
 }
 ```
 
-### 11.4 Response Messages (Host → Hub)
+### 11.4 Response Messages (Broker → Hub)
 
 **Response Envelope:**
 ```json
@@ -1633,7 +1633,7 @@ The Hub sends commands to Runtime Brokers over the control channel.
 }
 ```
 
-### 11.5 Event Messages (Host → Hub)
+### 11.5 Event Messages (Broker → Hub)
 
 Runtime Brokers send unsolicited events to the Hub.
 
@@ -1696,9 +1696,9 @@ The Hub maps incoming client WebSocket connections (e.g., `/agents/{id}/pty`) to
 
 ### 11.7 Heartbeat & Reconnection
 
-- **Heartbeat Interval:** Host sends heartbeat every 30 seconds
-- **Timeout:** Hub marks host as `disconnected` after 90 seconds without heartbeat
-- **Reconnection:** Host should implement exponential backoff (1s, 2s, 4s, ... max 60s)
+- **Heartbeat Interval:** Broker sends heartbeat every 30 seconds
+- **Timeout:** Hub marks broker as `disconnected` after 90 seconds without heartbeat
+- **Reconnection:** Broker should implement exponential backoff (1s, 2s, 4s, ... max 60s)
 - **Session Resumption:** On reconnect, Hub sends list of expected agents for reconciliation
 
 **Heartbeat Message:**
@@ -1728,14 +1728,14 @@ The Hub tracks these agents but cannot control their lifecycle.
 
 The Hub supports two transport modes for communicating with Runtime Brokers:
 
-1. **Control Channel (WebSocket)**: Host-initiated persistent connection. Used when hosts are behind NAT/firewalls.
-2. **Direct HTTP**: Hub calls Runtime Broker API endpoints directly. Used when hosts have stable, reachable endpoints.
+1. **Control Channel (WebSocket)**: Broker-initiated persistent connection. Used when brokers are behind NAT/firewalls.
+2. **Direct HTTP**: Hub calls Runtime Broker API endpoints directly. Used when brokers have stable, reachable endpoints.
 
 **Selection Logic:**
 
 When the Hub needs to send a command to a Runtime Broker:
-1. If Host has an active control channel connection → use WebSocket
-2. If Host has a registered `endpoint` URL and `status == "online"` → attempt direct HTTP
+1. If Broker has an active control channel connection → use WebSocket
+2. If Broker has a registered `endpoint` URL and `status == "online"` → attempt direct HTTP
 3. If neither available → return `502 runtime_error`
 
 **Endpoint Mapping:**
@@ -1900,7 +1900,7 @@ Instead of pushing commands over persistent WebSockets, the Hub writes commands 
 ```json
 {
   "id": "cmd-uuid",
-  "hostId": "host-abc",
+  "brokerId": "broker-abc",
   "command": "create_agent",
   "payload": { ... },
   "status": "pending",        // pending, delivered, acked, failed, expired
@@ -1914,12 +1914,12 @@ Instead of pushing commands over persistent WebSockets, the Hub writes commands 
 
 **Polling Endpoint:**
 ```
-GET /api/v1/runtime-brokers/{hostId}/commands?status=pending
+GET /api/v1/runtime-brokers/{brokerId}/commands?status=pending
 ```
 
 **Acknowledgment Endpoint:**
 ```
-POST /api/v1/runtime-brokers/{hostId}/commands/{commandId}/ack
+POST /api/v1/runtime-brokers/{brokerId}/commands/{commandId}/ack
 {
   "success": true,
   "result": { ... }
@@ -1951,7 +1951,7 @@ Interactive streams (PTY, real-time logs) cannot use polling due to latency requ
 │   CRUD Operations (Polling)          Interactive Streams (WS)  │
 │   ─────────────────────────          ────────────────────────  │
 │                                                                 │
-│   Hub ──► Queue ──► Host             Browser ◄──► Hub ◄──► Host│
+│   Hub ──► Queue ──► Broker          Browser ◄──► Hub ◄──► Broker│
 │       (DB-backed)                         (WebSocket relay)    │
 │                                                                 │
 │   • create_agent                     • PTY attachment          │
@@ -1967,12 +1967,12 @@ Interactive streams (PTY, real-time logs) cannot use polling due to latency requ
 2. Hub writes `prepare_stream` command to queue with stream token
 3. Runtime Broker polls, receives command, stores stream token
 4. Runtime Broker connects to Hub WebSocket: `WS /api/v1/streams/{streamToken}`
-5. Hub bridges the browser WebSocket to the Host WebSocket
+5. Hub bridges the browser WebSocket to the Broker WebSocket
 6. Stream closes when either side disconnects
 
 **Open Questions:**
-- Should the Host maintain a persistent "stream-ready" WebSocket, or connect on-demand per stream?
+- Should the Broker maintain a persistent "stream-ready" WebSocket, or connect on-demand per stream?
 - How to handle stream token expiration and cleanup?
-- Can we use WebRTC for direct browser-to-host PTY in some scenarios?
+- Can we use WebRTC for direct browser-to-broker PTY in some scenarios?
 
 This hybrid approach provides the scalability benefits of polling for most operations while preserving real-time capabilities for interactive use cases.

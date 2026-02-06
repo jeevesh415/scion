@@ -556,5 +556,5 @@ type AuthEvent struct {
 - [Auth Overview](auth-overview.md) - Identity model and token types
 - [CLI Authentication](cli-auth.md) - Terminal-based authentication
 - [Server Authentication](server-auth-design.md) - Hub server-side auth handling
-- [Runtime Broker Auth](runtime-broker-auth.md) - Host registration and mutual TLS
+- [Runtime Broker Auth](runtime-broker-auth.md) - Broker registration and mutual TLS
 - [Implementation Milestones](auth-milestones.md) - Phased implementation plan

@@ -710,7 +710,7 @@ Browser WS → Koa WS Proxy → Hub API WS → Runtime Broker
    - `<scion-settings-env>` - env/secrets management
    - Tab: Environment Variables
    - Tab: Secrets
-   - Scope selector (user/grove/host)
+   - Scope selector (user/grove/broker)
 
 - [ ] **Env var table**
    - Key/value display
@@ -724,7 +724,7 @@ Browser WS → Koa WS Proxy → Hub API WS → Runtime Broker
 
 - [ ] **Scope selector component**
    - Scope type dropdown
-   - Grove/host selector when applicable
+   - Grove/broker selector when applicable
 
 - [ ] **Env var editor dialog**
    - `<scion-env-var-editor>` - create/edit form

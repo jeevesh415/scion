@@ -31,7 +31,7 @@ pkg/
 │   ├── options.go          # Client configuration options
 │   ├── agents.go           # Agent operations
 │   ├── groves.go           # Grove operations
-│   ├── runtime_brokers.go    # Runtime host operations
+│   ├── runtime_brokers.go    # Runtime broker operations
 │   ├── templates.go        # Template operations
 │   ├── users.go            # User operations
 │   ├── auth.go             # Authentication helpers
@@ -566,7 +566,7 @@ type GroveService interface {
     // Register registers a grove (upsert based on git remote).
     Register(ctx context.Context, req *RegisterGroveRequest) (*RegisterGroveResponse, error)
 
-    // Create creates a grove without a contributing host.
+    // Create creates a grove without a contributing broker.
     Create(ctx context.Context, req *CreateGroveRequest) (*Grove, error)
 
     // Update updates grove metadata.
@@ -581,8 +581,8 @@ type GroveService interface {
     // ListContributors returns runtime brokers contributing to a grove.
     ListContributors(ctx context.Context, groveID string) (*ListContributorsResponse, error)
 
-    // RemoveContributor removes a host from a grove.
-    RemoveContributor(ctx context.Context, groveID, hostID string) error
+    // RemoveContributor removes a broker from a grove.
+    RemoveContributor(ctx context.Context, groveID, brokerID string) error
 
     // GetSettings retrieves grove settings.
     GetSettings(ctx context.Context, groveID string) (*GroveSettings, error)
@@ -595,7 +595,7 @@ type GroveService interface {
 type ListGrovesOptions struct {
     Visibility string // Filter by visibility
     GitRemote  string // Filter by git remote (exact or prefix)
-    HostID     string // Filter by contributing host
+    BrokerID   string // Filter by contributing broker
     Labels     map[string]string
     Page       apiclient.PageOptions
 }
@@ -611,31 +611,31 @@ type RegisterGroveRequest struct {
     Name      string            `json:"name"`
     GitRemote string            `json:"gitRemote"`
     Path      string            `json:"path"`
-    Host      *HostInfo         `json:"host"`
+    Broker    *BrokerInfo       `json:"broker"`
     Profiles  []string          `json:"profiles,omitempty"`
     Mode      string            `json:"mode"` // connected, read-only
     Labels    map[string]string `json:"labels,omitempty"`
 }
 
-// HostInfo describes the registering host.
-type HostInfo struct {
-    ID                 string            `json:"id,omitempty"`
-    Name               string            `json:"name"`
-    Version            string            `json:"version"`
-    Capabilities       *HostCapabilities `json:"capabilities,omitempty"`
-    Runtimes           []HostRuntime     `json:"runtimes,omitempty"`
-    SupportedHarnesses []string          `json:"supportedHarnesses,omitempty"`
+// BrokerInfo describes the registering broker.
+type BrokerInfo struct {
+    ID                 string              `json:"id,omitempty"`
+    Name               string              `json:"name"`
+    Version            string              `json:"version"`
+    Capabilities       *BrokerCapabilities `json:"capabilities,omitempty"`
+    Runtimes           []BrokerRuntime     `json:"runtimes,omitempty"`
+    SupportedHarnesses []string            `json:"supportedHarnesses,omitempty"`
 }
 
 // RegisterGroveResponse is the response from registering a grove.
 type RegisterGroveResponse struct {
     Grove     *Grove        `json:"grove"`
-    Host      *RuntimeBroker  `json:"host"`
-    Created   bool          `json:"created"` // True if grove was newly created
-    HostToken string        `json:"hostToken"`
+    Broker      *RuntimeBroker  `json:"broker"`
+    Created     bool            `json:"created"` // True if grove was newly created
+    BrokerToken string          `json:"brokerToken"`
 }
 
-// CreateGroveRequest is the request for creating a grove without a host.
+// CreateGroveRequest is the request for creating a grove without a broker.
 type CreateGroveRequest struct {
     Name       string            `json:"name"`
     GitRemote  string            `json:"gitRemote,omitempty"`
@@ -671,26 +671,26 @@ import (
 // RuntimeBrokerService handles runtime broker operations.
 type RuntimeBrokerService interface {
     // List returns runtime brokers matching the filter criteria.
-    List(ctx context.Context, opts *ListHostsOptions) (*ListHostsResponse, error)
+    List(ctx context.Context, opts *ListBrokersOptions) (*ListBrokersResponse, error)
 
     // Get returns a single runtime broker by ID.
-    Get(ctx context.Context, hostID string) (*RuntimeBroker, error)
+    Get(ctx context.Context, brokerID string) (*RuntimeBroker, error)
 
-    // Update updates host metadata.
-    Update(ctx context.Context, hostID string, req *UpdateHostRequest) (*RuntimeBroker, error)
+    // Update updates broker metadata.
+    Update(ctx context.Context, brokerID string, req *UpdateBrokerRequest) (*RuntimeBroker, error)
 
-    // Delete removes a host from all groves.
-    Delete(ctx context.Context, hostID string) error
+    // Delete removes a broker from all groves.
+    Delete(ctx context.Context, brokerID string) error
 
-    // ListGroves returns groves this host contributes to.
-    ListGroves(ctx context.Context, hostID string) (*ListHostGrovesResponse, error)
+    // ListGroves returns groves this broker contributes to.
+    ListGroves(ctx context.Context, brokerID string) (*ListBrokerGrovesResponse, error)
 
-    // Heartbeat sends a heartbeat for a host.
-    Heartbeat(ctx context.Context, hostID string, status *HostHeartbeat) error
+    // Heartbeat sends a heartbeat for a broker.
+    Heartbeat(ctx context.Context, brokerID string, status *BrokerHeartbeat) error
 }
 
-// ListHostsOptions configures runtime broker list filtering.
-type ListHostsOptions struct {
+// ListBrokersOptions configures runtime broker list filtering.
+type ListBrokersOptions struct {
     Type    string // Filter by type (docker, kubernetes, apple)
     Status  string // Filter by status (online, offline)
     Mode    string // Filter by mode (connected, read-only)
@@ -698,26 +698,26 @@ type ListHostsOptions struct {
     Page    apiclient.PageOptions
 }
 
-// ListHostsResponse is the response from listing runtime brokers.
-type ListHostsResponse struct {
-    Hosts []RuntimeBroker
+// ListBrokersResponse is the response from listing runtime brokers.
+type ListBrokersResponse struct {
+    Brokers []RuntimeBroker
     Page  apiclient.PageResult
 }
 
-// UpdateHostRequest is the request for updating a runtime broker.
-type UpdateHostRequest struct {
+// UpdateBrokerRequest is the request for updating a runtime broker.
+type UpdateBrokerRequest struct {
     Name        string            `json:"name,omitempty"`
     Labels      map[string]string `json:"labels,omitempty"`
     Annotations map[string]string `json:"annotations,omitempty"`
 }
 
-// ListHostGrovesResponse is the response from listing host groves.
-type ListHostGrovesResponse struct {
-    Groves []HostGroveInfo `json:"groves"`
+// ListBrokerGrovesResponse is the response from listing broker groves.
+type ListBrokerGrovesResponse struct {
+    Groves []BrokerGroveInfo `json:"groves"`
 }
 
-// HostGroveInfo describes a grove from a host's perspective.
-type HostGroveInfo struct {
+// BrokerGroveInfo describes a grove from a broker's perspective.
+type BrokerGroveInfo struct {
     GroveID    string   `json:"groveId"`
     GroveName  string   `json:"groveName"`
     GitRemote  string   `json:"gitRemote,omitempty"`
@@ -1140,13 +1140,13 @@ type Grove struct {
     Annotations     map[string]string `json:"annotations,omitempty"`
     Contributors    []GroveContributor `json:"contributors,omitempty"`
     AgentCount      int               `json:"agentCount,omitempty"`
-    ActiveHostCount int               `json:"activeHostCount,omitempty"`
+    ActiveBrokerCount int             `json:"activeBrokerCount,omitempty"`
 }
 
-// GroveContributor represents a host contributing to a grove.
+// GroveContributor represents a broker contributing to a grove.
 type GroveContributor struct {
-    HostID    string    `json:"hostId"`
-    HostName  string    `json:"hostName"`
+    BrokerID  string    `json:"brokerId"`
+    BrokerName string   `json:"brokerName"`
     Mode      string    `json:"mode"`
     Status    string    `json:"status"`
     Profiles  []string  `json:"profiles,omitempty"`
@@ -1182,35 +1182,35 @@ type RuntimeBroker struct {
     Status             string            `json:"status"`
     ConnectionState    string            `json:"connectionState"`
     LastHeartbeat      time.Time         `json:"lastHeartbeat,omitempty"`
-    Capabilities       *HostCapabilities `json:"capabilities,omitempty"`
-    SupportedHarnesses []string          `json:"supportedHarnesses,omitempty"`
-    Resources          *HostResources    `json:"resources,omitempty"`
-    Runtimes           []HostRuntime     `json:"runtimes,omitempty"`
+    Capabilities       *BrokerCapabilities `json:"capabilities,omitempty"`
+    SupportedHarnesses []string            `json:"supportedHarnesses,omitempty"`
+    Resources          *BrokerResources    `json:"resources,omitempty"`
+    Runtimes           []BrokerRuntime     `json:"runtimes,omitempty"`
     Labels             map[string]string `json:"labels,omitempty"`
     Annotations        map[string]string `json:"annotations,omitempty"`
     Endpoint           string            `json:"endpoint,omitempty"`
-    Groves             []HostGroveInfo   `json:"groves,omitempty"`
+    Groves             []BrokerGroveInfo  `json:"groves,omitempty"`
     Created            time.Time         `json:"created"`
     Updated            time.Time         `json:"updated"`
 }
 
-// HostCapabilities describes runtime broker capabilities.
-type HostCapabilities struct {
+// BrokerCapabilities describes runtime broker capabilities.
+type BrokerCapabilities struct {
     WebPTY bool `json:"webPty"`
     Sync   bool `json:"sync"`
     Attach bool `json:"attach"`
 }
 
-// HostResources describes host resource availability.
-type HostResources struct {
+// BrokerResources describes broker resource availability.
+type BrokerResources struct {
     CPUAvailable    string `json:"cpuAvailable,omitempty"`
     MemoryAvailable string `json:"memoryAvailable,omitempty"`
     AgentsRunning   int    `json:"agentsRunning,omitempty"`
     AgentsCapacity  int    `json:"agentsCapacity,omitempty"`
 }
 
-// HostRuntime describes a container runtime on a host.
-type HostRuntime struct {
+// BrokerRuntime describes a container runtime on a broker.
+type BrokerRuntime struct {
     Type      string `json:"type"`
     Available bool   `json:"available"`
     Context   string `json:"context,omitempty"`
@@ -1294,10 +1294,10 @@ type Client interface {
     // Agents returns the agent operations interface.
     Agents() AgentService
 
-    // Info returns host information.
-    Info(ctx context.Context) (*runtimebroker.HostInfoResponse, error)
+    // Info returns broker information.
+    Info(ctx context.Context) (*runtimebroker.BrokerInfoResponse, error)
 
-    // Health checks host availability.
+    // Health checks broker availability.
     Health(ctx context.Context) (*runtimebroker.HealthResponse, error)
 }
 
@@ -1390,7 +1390,7 @@ import (
 
 // AgentService handles agent operations on a runtime broker.
 type AgentService interface {
-    // List returns agents on this host.
+    // List returns agents on this broker.
     List(ctx context.Context, opts *ListAgentsOptions) (*runtimebroker.ListAgentsResponse, error)
 
     // Get returns a single agent by ID.
@@ -1563,12 +1563,12 @@ func createAgentWithFallback(ctx context.Context, client hubclient.Client, req *
         if errors.As(err, &apiErr) {
             // Check if it's a "no runtime broker" error
             if apiErr.Code == "no_runtime_broker" || apiErr.Code == "runtime_broker_unavailable" {
-                // Extract available hosts from error details
-                if hosts, ok := apiErr.Details["availableHosts"].([]interface{}); ok {
-                    fmt.Println("Available hosts:")
-                    for _, h := range hosts {
-                        if host, ok := h.(map[string]interface{}); ok {
-                            fmt.Printf("  - %s (%s)\n", host["name"], host["id"])
+                // Extract available brokers from error details
+                if brokers, ok := apiErr.Details["availableBrokers"].([]interface{}); ok {
+                    fmt.Println("Available brokers:")
+                    for _, b := range brokers {
+                        if broker, ok := b.(map[string]interface{}); ok {
+                            fmt.Printf("  - %s (%s)\n", broker["name"], broker["id"])
                         }
                     }
                 }
@@ -1674,10 +1674,10 @@ func main() {
         Name:      "my-project",
         GitRemote: "git@github.com:myorg/my-project.git",
         Path:      "/Users/dev/projects/my-project/.scion",
-        Host: &hubclient.HostInfo{
+        Broker: &hubclient.BrokerInfo{
             Name:    "Dev Laptop",
             Version: "1.2.3",
-            Capabilities: &hubclient.HostCapabilities{
+            Capabilities: &hubclient.BrokerCapabilities{
                 WebPTY: true,
                 Attach: true,
             },
@@ -1697,14 +1697,14 @@ func main() {
     }
 
     fmt.Printf("Grove ID: %s\n", resp.Grove.ID)
-    fmt.Printf("Host Token: %s\n", resp.HostToken)
+    fmt.Printf("Broker Token: %s\n", resp.BrokerToken)
 
-    // Store the host token for future use
+    // Store the broker token for future use
     // ...
 }
 ```
 
-### 6.3. Runtime Broker Client - Hub Dispatching to Host
+### 6.3. Runtime Broker Client - Hub Dispatching to Broker
 
 ```go
 package main
@@ -1720,10 +1720,10 @@ import (
 
 // This example shows how the Hub would dispatch an agent creation
 // to a Runtime Broker in Direct HTTP mode.
-func dispatchAgentCreate(ctx context.Context, hostEndpoint, hostToken string, req *runtimebroker.CreateAgentRequest) error {
+func dispatchAgentCreate(ctx context.Context, brokerEndpoint, brokerToken string, req *runtimebroker.CreateAgentRequest) error {
     client, err := brokerclient.New(
-        hostEndpoint,
-        brokerclient.WithBearerToken(hostToken),
+        brokerEndpoint,
+        brokerclient.WithBearerToken(brokerToken),
     )
     if err != nil {
         return err
@@ -1731,7 +1731,7 @@ func dispatchAgentCreate(ctx context.Context, hostEndpoint, hostToken string, re
 
     resp, err := client.Agents().Create(ctx, req)
     if err != nil {
-        return fmt.Errorf("failed to create agent on host: %w", err)
+        return fmt.Errorf("failed to create agent on broker: %w", err)
     }
 
     fmt.Printf("Agent created: %s (container: %s)\n",
@@ -1765,8 +1765,8 @@ func main() {
     defer cancel()
 
     client, err := brokerclient.New(
-        "https://host.scion.dev:9800",
-        brokerclient.WithBearerToken("host-token"),
+        "https://broker.scion.dev:9800",
+        brokerclient.WithBearerToken("broker-token"),
     )
     if err != nil {
         log.Fatal(err)

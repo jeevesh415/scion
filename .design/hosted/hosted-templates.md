@@ -32,7 +32,7 @@ The hosted architecture introduces new requirements:
 |----------|--------|-----------|
 | Storage backend | Hub storage bucket with `/templates` prefix | Durable, scalable; templates share bucket with other Hub data |
 | Registry | Hub database | Centralized metadata, search, access control |
-| Distribution | Pull-based (Host fetches from bucket) | Simpler than push; works across NAT/firewalls |
+| Distribution | Pull-based (Broker fetches from bucket) | Simpler than push; works across NAT/firewalls |
 | Caching | Local cache on Runtime Brokers | Avoid re-fetching unchanged templates |
 | Content hashing | SHA-256 hash of contents | Reliable cache invalidation |
 | Versioning | Deferred | GCS native versioning available for future use |
@@ -107,25 +107,25 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Hub as Scion Hub
-    participant Host as Runtime Broker
+    participant Broker as Runtime Broker
     participant Cache as Template Cache
     participant Bucket as Cloud Bucket
 
-    Hub->>Host: CreateAgent(template: "custom-claude")
-    Host->>Hub: GET /templates/custom-claude
-    Hub-->>Host: Template metadata (storageUri, contentHash)
+    Hub->>Broker: CreateAgent(template: "custom-claude")
+    Broker->>Hub: GET /templates/custom-claude
+    Hub-->>Broker: Template metadata (storageUri, contentHash)
 
-    Host->>Cache: Check local cache (by contentHash)
+    Broker->>Cache: Check local cache (by contentHash)
     alt Cache hit
-        Cache-->>Host: Cached template files
+        Cache-->>Broker: Cached template files
     else Cache miss
-        Host->>Bucket: Fetch template files (storageUri)
-        Bucket-->>Host: Template files
-        Host->>Cache: Store in cache
+        Broker->>Bucket: Fetch template files (storageUri)
+        Bucket-->>Broker: Template files
+        Broker->>Cache: Store in cache
     end
 
-    Host->>Host: Apply template to agent workspace
-    Host-->>Hub: Agent created
+    Broker->>Broker: Apply template to agent workspace
+    Broker-->>Hub: Agent created
 ```
 
 ---

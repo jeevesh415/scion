@@ -93,7 +93,7 @@ Expected response:
 }
 ```
 
-### Host Info
+### Broker Info
 
 ```bash
 curl -s http://localhost:9800/api/v1/info | jq
@@ -102,7 +102,7 @@ curl -s http://localhost:9800/api/v1/info | jq
 Expected response:
 ```json
 {
-  "hostId": "abc123-...",
+  "brokerId": "abc123-...",
   "name": "",
   "version": "0.1.0",
   "mode": "connected",
@@ -302,7 +302,7 @@ When you create an agent via the Hub API while a co-located runtime broker is ru
 
 Agents created via the Hub API require a runtime broker. The Hub resolves the runtime broker in this order:
 1. Use the explicitly specified `runtimeBrokerId` if provided
-2. Fall back to the grove's `defaultRuntimeBrokerId` (set when the first host registers)
+2. Fall back to the grove's `defaultRuntimeBrokerId` (set when the first broker registers)
 3. Return an error with available alternatives if neither is available
 
 
@@ -325,7 +325,7 @@ curl -s -X POST http://localhost:9810/api/v1/agents \
 
 ```bash
 # Get available runtime brokers for the grove
-HOST_ID=$(curl -s "http://localhost:9810/api/v1/runtime-brokers?groveId=$GROVE_ID" | jq -r '.hosts[0].id')
+BROKER_ID=$(curl -s "http://localhost:9810/api/v1/runtime-brokers?groveId=$GROVE_ID" | jq -r '.brokers[0].id')
 
 # Create an agent with explicit runtime broker
 curl -s -X POST http://localhost:9810/api/v1/agents \
@@ -333,7 +333,7 @@ curl -s -X POST http://localhost:9810/api/v1/agents \
   -d "{
     \"name\": \"feature-agent-2\",
     \"groveId\": \"$GROVE_ID\",
-    \"runtimeBrokerId\": \"$HOST_ID\",
+    \"runtimeBrokerId\": \"$BROKER_ID\",
     \"template\": \"claude\",
     \"task\": \"Hello, please describe the project structure\"
   }" | jq
@@ -387,7 +387,7 @@ curl -s "http://localhost:9810/api/v1/agents?groveId=$GROVE_ID" | jq
 
 ### Step 5: Register Additional Groves (Optional)
 
-For project-specific groves, you can manually register them with a local path. The `path` field specifies where the grove is located on this host:
+For project-specific groves, you can manually register them with a local path. The `path` field specifies where the grove is located on this broker:
 
 ```bash
 curl -s -X POST http://localhost:9810/api/v1/groves/register \
@@ -397,7 +397,7 @@ curl -s -X POST http://localhost:9810/api/v1/groves/register \
     "name": "My Project",
     "path": "/path/to/myproject/.scion",
     "mode": "connected",
-    "host": {
+    "broker": {
       "name": "My MacBook",
       "version": "0.1.0",
       "runtimes": [
@@ -443,10 +443,10 @@ cd /Users/ptone/src/cli-projects/qa-scion && scion init
 
 ### Step 2: Register the Project Grove with Local Path
 
-The key difference from the global grove is that we provide the `path` field to specify where the grove is located on this host:
+The key difference from the global grove is that we provide the `path` field to specify where the grove is located on this broker:
 
 ```bash
-HOST_ID=$(curl -s http://localhost:9800/api/v1/info | jq -r '.hostId')
+BROKER_ID=$(curl -s http://localhost:9800/api/v1/info | jq -r '.brokerId')
 
 PROJECT_RESPONSE=$(curl -s -X POST http://localhost:9810/api/v1/groves/register \
   -H "Content-Type: application/json" \
@@ -454,8 +454,8 @@ PROJECT_RESPONSE=$(curl -s -X POST http://localhost:9810/api/v1/groves/register 
     "name": "QA Scion",
     "gitRemote": "https://github.com/example/qa-scion",
     "path": "/Users/ptone/src/cli-projects/qa-scion/.scion",
-    "host": {
-      "id": "'$HOST_ID'",
+    "broker": {
+      "id": "'$BROKER_ID'",
       "name": "Local Mac",
       "version": "0.1.0",
       "runtimes": [{"type": "container", "available": true}],
@@ -475,10 +475,10 @@ echo "Project Grove ID: $PROJECT_GROVE_ID"
 curl -s "http://localhost:9810/api/v1/runtime-brokers?groveId=$PROJECT_GROVE_ID" | jq
 ```
 
-Expected response (note the `localPath` field included for each host):
+Expected response (note the `localPath` field included for each broker):
 ```json
 {
-  "hosts": [
+  "brokers": [
     {
       "id": "7d2bdf70-a975-4e7d-930c-2b67448ed8f6",
       "name": "Local Mac",
@@ -509,7 +509,7 @@ Expected response (note the `localPath` field included for each host):
 }
 ```
 
-The `localPath` field is included when querying runtime brokers filtered by `groveId`, providing the grove-specific filesystem path for each host contributor.
+The `localPath` field is included when querying runtime brokers filtered by `groveId`, providing the grove-specific filesystem path for each broker contributor.
 
 ### Step 4: Create an Agent in the Project Grove
 
@@ -556,10 +556,10 @@ curl -s -X DELETE "http://localhost:9800/api/v1/agents/project-agent?deleteFiles
 When creating an agent via the Hub API without a runtime broker configured:
 
 ```bash
-# Try to create agent for a grove with no registered hosts
+# Try to create agent for a grove with no registered brokers
 curl -s -X POST http://localhost:9810/api/v1/agents \
   -H "Content-Type: application/json" \
-  -d '{"name": "orphan-agent", "groveId": "grove-with-no-hosts"}' | jq
+  -d '{"name": "orphan-agent", "groveId": "grove-with-no-brokers"}' | jq
 ```
 
 Expected response (422):
@@ -569,7 +569,7 @@ Expected response (422):
     "code": "no_runtime_broker",
     "message": "No runtime brokers available for this grove; register a runtime broker first",
     "details": {
-      "availableHosts": []
+      "availableBrokers": []
     }
   }
 }
@@ -582,7 +582,7 @@ When specifying a runtime broker that is offline or not a contributor:
 ```bash
 curl -s -X POST http://localhost:9810/api/v1/agents \
   -H "Content-Type: application/json" \
-  -d '{"name": "test", "groveId": "grove123", "runtimeBrokerId": "offline-host"}' | jq
+  -d '{"name": "test", "groveId": "grove123", "runtimeBrokerId": "offline-broker"}' | jq
 ```
 
 Expected response (503):
@@ -592,9 +592,9 @@ Expected response (503):
     "code": "runtime_broker_unavailable",
     "message": "Specified runtime broker is unavailable",
     "details": {
-      "requestedHostId": "offline-host",
-      "availableHosts": [
-        {"id": "host_abc", "name": "My Mac", "type": "container", "status": "online"}
+      "requestedBrokerId": "offline-broker",
+      "availableBrokers": [
+        {"id": "broker_abc", "name": "My Mac", "type": "container", "status": "online"}
       ]
     }
   }
@@ -662,25 +662,25 @@ Save this as `test-runtime-broker.sh`:
 set -e
 
 HUB_URL="http://localhost:9810"
-HOST_URL="http://localhost:9800"
+BROKER_URL="http://localhost:9800"
 
 echo "=== 1. Health Checks ==="
 echo "Hub:"
 curl -s $HUB_URL/healthz | jq '.status'
 echo "Runtime Broker:"
-curl -s $HOST_URL/healthz | jq '{status, mode, checks}'
+curl -s $BROKER_URL/healthz | jq '{status, mode, checks}'
 
 echo -e "\n=== 2. Runtime Broker Info ==="
-curl -s $HOST_URL/api/v1/info | jq '{type, mode, capabilities}'
+curl -s $BROKER_URL/api/v1/info | jq '{type, mode, capabilities}'
 
-echo -e "\n=== 3. Register Grove with Host ==="
+echo -e "\n=== 3. Register Grove with Broker ==="
 GROVE_RESPONSE=$(curl -s -X POST $HUB_URL/api/v1/groves/register \
   -H "Content-Type: application/json" \
   -d '{
     "gitRemote": "https://github.com/test/demo-project",
     "name": "Demo Project",
     "mode": "connected",
-    "host": {
+    "broker": {
       "name": "Test Mac",
       "version": "0.1.0",
       "runtimes": [{"type": "container", "available": true}],
@@ -692,7 +692,7 @@ GROVE_ID=$(echo $GROVE_RESPONSE | jq -r '.grove.id')
 echo "Grove ID: $GROVE_ID"
 
 echo -e "\n=== 4. List Agents (should be empty) ==="
-curl -s $HOST_URL/api/v1/agents | jq
+curl -s $BROKER_URL/api/v1/agents | jq
 
 echo -e "\n=== 5. Create Agent via Hub ==="
 AGENT_RESPONSE=$(curl -s -X POST $HUB_URL/api/v1/agents \
@@ -711,7 +711,7 @@ echo -e "\n=== 6. List Agents in Hub ==="
 curl -s "$HUB_URL/api/v1/agents?groveId=$GROVE_ID" | jq '.agents[] | {name, status}'
 
 echo -e "\n=== 7. List Runtime Brokers ==="
-curl -s $HUB_URL/api/v1/runtime-brokers | jq '.hosts[] | {name, type, status}'
+curl -s $HUB_URL/api/v1/runtime-brokers | jq '.brokers[] | {name, type, status}'
 
 echo -e "\n=== 8. Final Health Stats ==="
 curl -s $HUB_URL/healthz | jq '.stats'
@@ -798,7 +798,7 @@ chmod 755 ~/.scion
 |----------|--------|-------------|
 | `/healthz` | GET | Liveness check |
 | `/readyz` | GET | Readiness check |
-| `/api/v1/info` | GET | Host information |
+| `/api/v1/info` | GET | Broker information |
 | `/api/v1/agents` | GET | List agents |
 | `/api/v1/agents` | POST | Create agent |
 | `/api/v1/agents/{id}` | GET | Get agent details |
@@ -819,7 +819,7 @@ chmod 755 ~/.scion
 |----------|--------|-------------|
 | `/healthz` | GET | Liveness check |
 | `/api/v1/groves` | GET | List groves |
-| `/api/v1/groves/register` | POST | Register grove with host |
+| `/api/v1/groves/register` | POST | Register grove with broker |
 | `/api/v1/groves/{id}` | GET/PATCH/DELETE | Grove operations |
 | `/api/v1/agents` | GET/POST | List/create agents |
 | `/api/v1/agents/{id}` | GET/PATCH/DELETE | Agent operations |

@@ -18,14 +18,14 @@ The Scion Hosted architecture is partially implemented. The core "backend" compo
 *   **Missing / Gaps:**
     *   **NATS / Real-time Events:** No implementation found for NATS broadcasting or event loops in `pkg/hub`. This is critical for the "Snapshot + Delta" pattern described in `web-frontend-design.md`.
     *   **Secrets Management:** `pkg/hubclient` has secrets logic, but need to confirm server-side encryption/storage implementation.
-    *   **WebSocket Control Plane:** While `pkg/runtimebroker` exists, the complex WebSocket control channel for NAT traversal (Hub <-> Host) needs verification of full implementation beyond simple HTTP.
+    *   **WebSocket Control Plane:** While `pkg/runtimebroker` exists, the complex WebSocket control channel for NAT traversal (Hub <-> Broker) needs verification of full implementation beyond simple HTTP.
 
 ### 2.2 Runtime Broker API (`pkg/runtimebroker`)
 *   **Status:** ✅ **Partially Complete**
 *   **Implemented:**
     *   Server structure and mode switching (Connected vs Read-Only).
     *   Agent Manager adaptation (`agent.Manager`).
-    *   **Co-location Dispatcher:** `cmd/server.go` contains logic (`registerGlobalGroveAndHost`, `newAgentDispatcherAdapter`) to automatically register the local host with the Hub, enabling a seamless "out of the box" experience.
+    *   **Co-location Dispatcher:** `cmd/server.go` contains logic (`registerGlobalGroveAndBroker`, `newAgentDispatcherAdapter`) to automatically register the local broker with the Hub, enabling a seamless "out of the box" experience.
 *   **Missing:**
     *   Robust status reporting loop (dependent on NATS/Events).
 

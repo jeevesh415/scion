@@ -45,7 +45,7 @@ Expected response:
     "database": "healthy"
   },
   "stats": {
-    "connectedHosts": 0,
+    "connectedBrokers": 0,
     "activeAgents": 0,
     "groves": 0
   }
@@ -228,14 +228,14 @@ curl -s http://localhost:9810/api/v1/users | jq
 
 ## 7. Runtime Broker Management
 
-Runtime hosts are typically created via grove registration with a host payload, but can be listed:
+Runtime brokers are typically created via grove registration with a broker payload, but can be listed:
 
 ### List Runtime Brokers
 ```bash
 curl -s http://localhost:9810/api/v1/runtime-brokers | jq
 ```
 
-### Register Grove with Host
+### Register Grove with Broker
 ```bash
 curl -s -X POST http://localhost:9810/api/v1/groves/register \
   -H "Content-Type: application/json" \
@@ -243,7 +243,7 @@ curl -s -X POST http://localhost:9810/api/v1/groves/register \
     "gitRemote": "https://github.com/myorg/another-project",
     "name": "Another Project",
     "mode": "connected",
-    "host": {
+    "broker": {
       "name": "My Workstation",
       "version": "0.1.0",
       "runtimes": [
@@ -258,7 +258,7 @@ curl -s -X POST http://localhost:9810/api/v1/groves/register \
   }' | jq
 ```
 
-This creates both a grove and a runtime broker, returning a host token.
+This creates both a grove and a runtime broker, returning a broker token.
 
 ## 8. Error Handling
 

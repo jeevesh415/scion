@@ -20,7 +20,7 @@ This document specifies the authorization and access control system for the Scio
 ### Non-Goals
 
 - Authentication mechanisms (covered in separate design documents)
-- Runtime host authorization (separate trust model)
+- Runtime broker authorization (separate trust model)
 - Fine-grained action permissions beyond CRUD (initially)
 - Cross-hub federation
 

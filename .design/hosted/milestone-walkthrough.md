@@ -42,8 +42,8 @@ These scenarios should work with Hub server and Runtime Broker running on differ
 | - `scion hub register` | ✅ | |
 | - `scion hub deregister` | ✅ | |
 | - `scion hub status` | ✅ | |
-| - HMAC-based host authentication | ✅ | `pkg/hub/hostauth.go`, `pkg/runtimebroker/hostauth.go` |
-| - Bidirectional HMAC (Hub→Host signing) | ✅ | `pkg/hub/brokerclient.go` |
+| - HMAC-based broker authentication | ✅ | `pkg/hub/hostauth.go`, `pkg/runtimebroker/hostauth.go` |
+| - Bidirectional HMAC (Hub→Broker signing) | ✅ | `pkg/hub/brokerclient.go` |
 | - Secret rotation endpoint | ✅ | `POST /api/v1/brokers/{id}/rotate-secret` |
 | - Nonce cache (replay prevention) | ✅ | Enabled by default |
 | **Agent Lifecycle (Hub Mode)** | ✅ Complete | `cmd/create.go`, `cmd/start.go`, `cmd/stop.go`, `cmd/delete.go` |
@@ -58,10 +58,10 @@ These scenarios should work with Hub server and Runtime Broker running on differ
 | - Agent lifecycle endpoints | ✅ | |
 | - Template cache/hydration | ✅ | `pkg/templatecache/` |
 | - Heartbeat to Hub | ✅ | `pkg/runtimebroker/heartbeat.go` |
-| - Strict auth mode (configurable) | ✅ | `HostAuthStrictMode` config |
+| - Strict auth mode (configurable) | ✅ | `BrokerAuthStrictMode` config |
 | **Observability** | ✅ Complete | |
 | - Audit logging | ✅ | `pkg/hub/audit.go` |
-| - Host auth metrics | ✅ | `pkg/hub/metrics.go`, `/metrics` endpoint |
+| - Broker auth metrics | ✅ | `pkg/hub/metrics.go`, `/metrics` endpoint |
 
 ### 2.2 Recently Implemented
 
@@ -72,7 +72,7 @@ These scenarios should work with Hub server and Runtime Broker running on differ
 | - PTY stream multiplexing | ✅ | `pkg/hub/controlchannel.go` |
 | **WebSocket Control Channel** | ✅ Complete | `pkg/hub/controlchannel.go` |
 | - Hub-initiated commands | ✅ | HTTP tunneling via WebSocket |
-| - NAT/firewall traversal | ✅ | Host-initiated connection |
+| - NAT/firewall traversal | ✅ | Broker-initiated connection |
 
 ### 2.3 All Scenarios Complete ✅
 
@@ -81,7 +81,7 @@ All blocking scenarios have been implemented. Workspace sync was the final piece
 | Component | Status | Key Files |
 |-----------|--------|-----------|
 | **Workspace Sync (Hosted)** | ✅ Complete | `cmd/sync.go`, `pkg/hub/workspace_handlers.go` |
-| - Sync workspace files to/from remote host | ✅ | `pkg/runtimebroker/workspace_handlers.go` |
+| - Sync workspace files to/from remote broker | ✅ | `pkg/runtimebroker/workspace_handlers.go` |
 | - rclone integration for workspace | ✅ | `pkg/gcp/storage.go` |
 | - Signed URL pattern (like templates) | ✅ | `pkg/hubclient/workspace.go` |
 | - Incremental sync via content hashing | ✅ | `pkg/transfer/` |
@@ -178,15 +178,15 @@ scion start my-agent --type custom-claude "Fix the login bug"
 
 **Gap: Runtime Broker Endpoint Discovery**
 
-When Hub dispatches to Runtime Broker, it needs the host endpoint URL. Currently:
-- Host registers with Hub and provides endpoint URL
+When Hub dispatches to Runtime Broker, it needs the broker endpoint URL. Currently:
+- Broker registers with Hub and provides endpoint URL
 - Hub stores endpoint in database
 - Dispatcher looks up endpoint for dispatch
 
 **Resolved:** Runtime Brokers behind NAT use the WebSocket control channel:
-- Host initiates WebSocket connection to Hub at `/api/v1/runtime-brokers/connect`
+- Broker initiates WebSocket connection to Hub at `/api/v1/runtime-brokers/connect`
 - Hub tunnels HTTP requests through the control channel
-- No external endpoint URL needed for NAT-ed hosts
+- No external endpoint URL needed for NAT-ed brokers
 - See `runtimebroker-websocket.md` Section 9 for implementation details
 
 ---
@@ -400,7 +400,7 @@ How does Runtime Broker specify its externally-reachable endpoint?
 **Options:**
 - **A. Explicit flag:** `scion server start --endpoint http://myhost:9800`
 - **B. Auto-detect:** Determine from network interfaces
-- **C. Registration response:** Hub tells host its observed IP
+- **C. Registration response:** Hub tells broker its observed IP
 
 **Recommendation:** Option A - explicit is more reliable, especially for dev
 
@@ -417,7 +417,7 @@ Run Hub and Runtime Broker as separate processes:
 scion server start --enable-hub --hub-port 9000
 
 # Terminal 2: Start Runtime Broker (different port)
-scion server start --enable-runtime-broker --host-port 9800 \
+scion server start --enable-runtime-broker --broker-port 9800 \
   --hub-endpoint http://localhost:9000 \
   --endpoint http://localhost:9800
 
@@ -437,7 +437,7 @@ scion delete my-agent
 
 Same commands but with actual different machines:
 - Hub: `hub.example.com:9000`
-- Runtime Broker: `host.example.com:9800`
+- Runtime Broker: `broker.example.com:9800`
 - CLI: Developer laptop
 
 ---

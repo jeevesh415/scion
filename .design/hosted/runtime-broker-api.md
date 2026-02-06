@@ -11,42 +11,42 @@ This API effectively exposes the `pkg/agent.Manager` interface over a network bo
 
 ### 1.1. Grove-Centric Architecture
 
-Runtime Brokers interact with the Hub through the **groves they contribute to**. A host does not register itself as a standalone entity; instead, it registers one or more groves via `POST /api/v1/groves/register` on the Hub. This grove registration:
+Runtime Brokers interact with the Hub through the **groves they contribute to**. A broker does not register itself as a standalone entity; instead, it registers one or more groves via `POST /api/v1/groves/register` on the Hub. This grove registration:
 
 1. Creates or links to an existing grove (identified by git remote URL)
-2. Adds this host as a contributor to the grove
-3. Returns a host token for subsequent authentication
+2. Adds this broker as a contributor to the grove
+3. Returns a broker token for subsequent authentication
 
-All agent operations on a host are scoped to the groves it contributes to.
+All agent operations on a broker are scoped to the groves it contributes to.
 
 ### 1.2. Relationship to Hub API
 
-This document describes the **Direct HTTP** interface for Runtime Brokers. The Hub communicates with hosts via two transports:
+This document describes the **Direct HTTP** interface for Runtime Brokers. The Hub communicates with brokers via two transports:
 
-1. **Direct HTTP** (this API): Hub calls Host endpoints directly. Used when hosts have stable, reachable endpoints (K8s services, cloud VMs).
+1. **Direct HTTP** (this API): Hub calls Broker endpoints directly. Used when brokers have stable, reachable endpoints (K8s services, cloud VMs).
 
-2. **Control Channel** (Hub API Section 10): Host initiates WebSocket to Hub; commands are serialized over this connection. Used when hosts are behind NAT/firewalls.
+2. **Control Channel** (Hub API Section 10): Broker initiates WebSocket to Hub; commands are serialized over this connection. Used when brokers are behind NAT/firewalls.
 
-Both transports use **identical command semantics**. The Hub selects the transport based on host connectivity:
-- If Host has active control channel → use WebSocket
-- If Host has registered `endpoint` and is reachable → use Direct HTTP
+Both transports use **identical command semantics**. The Hub selects the transport based on broker connectivity:
+- If Broker has active control channel → use WebSocket
+- If Broker has registered `endpoint` and is reachable → use Direct HTTP
 - Otherwise → return error
 
 ### 1.3. Transport & Connectivity
 
 - **Protocol:** HTTP/1.1 (REST) for control operations; WebSocket for streaming (logs, PTY).
 - **Discovery:**
-  - **Direct:** Hub connects to Host IP/DNS (e.g., internal K8s service or public IP).
-  - **Control Channel:** Host establishes persistent WebSocket to Hub; Hub routes requests through this channel (for hosts behind firewalls/NAT).
+  - **Direct:** Hub connects to Broker IP/DNS (e.g., internal K8s service or public IP).
+  - **Control Channel:** Broker establishes persistent WebSocket to Hub; Hub routes requests through this channel (for brokers behind firewalls/NAT).
 
 ### 1.4. Operational Modes
 
-The Host runs in one of three modes, affecting API availability:
+The Broker runs in one of three modes, affecting API availability:
 
 | Mode | Description | Available Endpoints |
 |------|-------------|---------------------|
 | **Connected** | Hub has full control | All endpoints |
-| **Read-Only** | Host reports status; Hub cannot modify | GET endpoints, `/attach` (optional) |
+| **Read-Only** | Broker reports status; Hub cannot modify | GET endpoints, `/attach` (optional) |
 | **Solo** | API disabled; managed via CLI only | None |
 
 **Read-Only Mode Disabled Endpoints** (return `405 Method Not Allowed`):
@@ -75,7 +75,7 @@ Runtime Broker authentication uses **HMAC-based request signing** as the primary
 | `X-Scion-Nonce` | Base64 (16 bytes) | Random nonce for replay prevention |
 | `X-Scion-Signature` | Base64 (32 bytes) | HMAC-SHA256 signature |
 
-The shared secret is established during host registration (see [Runtime Broker Auth](auth/runtime-broker-auth.md) Section 3).
+The shared secret is established during broker registration (see [Runtime Broker Auth](auth/runtime-broker-auth.md) Section 3).
 
 ### 2.3. Request Signing Process
 
@@ -96,11 +96,11 @@ All authenticated requests between Hub and Runtime Broker are HMAC-signed:
 
 See [Runtime Broker Auth](auth/runtime-broker-auth.md) for the complete specification.
 
-## 3. Host Lifecycle & Events
+## 3. Broker Lifecycle & Events
 
-### 3.1. Grove Registration (Host → Hub)
+### 3.1. Grove Registration (Broker → Hub)
 
-Hosts register **groves** with the Hub, not themselves as standalone entities. On startup or when linking a new grove:
+Brokers register **groves** with the Hub, not themselves as standalone entities. On startup or when linking a new grove:
 
 ```
 POST {HUB_URL}/api/v1/groves/register
@@ -108,14 +108,14 @@ POST {HUB_URL}/api/v1/groves/register
 
 This endpoint:
 1. Creates a new grove or links to an existing one (matched by git remote URL)
-2. Adds this host as a contributor to the grove
-3. Returns a grove ID and host authentication token
+2. Adds this broker as a contributor to the grove
+3. Returns a grove ID and broker authentication token
 
 See Hub API Section 4.3 for the full request/response format.
 
-### 3.2. Control Channel Connection (Host → Hub)
+### 3.2. Control Channel Connection (Broker → Hub)
 
-After registering at least one grove, hosts establish a persistent WebSocket for real-time communication:
+After registering at least one grove, brokers establish a persistent WebSocket for real-time communication:
 
 ```
 WS {HUB_URL}/api/v1/runtime-brokers/connect
@@ -123,12 +123,12 @@ WS {HUB_URL}/api/v1/runtime-brokers/connect
 
 See Hub API Section 10 for the control channel protocol.
 
-### 3.3. Heartbeat (Host → Hub)
+### 3.3. Heartbeat (Broker → Hub)
 
-Hosts report health every 30 seconds. Hub marks host `offline` after 3 missed heartbeats.
+Brokers report health every 30 seconds. Hub marks broker `offline` after 3 missed heartbeats.
 
 ```
-POST {HUB_URL}/api/v1/runtime-brokers/{hostId}/heartbeat
+POST {HUB_URL}/api/v1/runtime-brokers/{brokerId}/heartbeat
 ```
 
 ```json
@@ -155,13 +155,13 @@ POST {HUB_URL}/api/v1/runtime-brokers/{hostId}/heartbeat
 }
 ```
 
-### 3.4. Event Push (Host → Hub)
+### 3.4. Event Push (Broker → Hub)
 
-Hosts push state changes via the Hub's event endpoint or control channel.
+Brokers push state changes via the Hub's event endpoint or control channel.
 
 **Via HTTP (if Hub reachable):**
 ```
-POST {HUB_URL}/api/v1/runtime-brokers/{hostId}/events
+POST {HUB_URL}/api/v1/runtime-brokers/{brokerId}/events
 ```
 
 **Via Control Channel:**
@@ -181,9 +181,9 @@ POST {HUB_URL}/api/v1/runtime-brokers/{hostId}/events
 }
 ```
 
-## 4. API Resources (Hub → Host)
+## 4. API Resources (Hub → Broker)
 
-Base URL: `https://{host-endpoint}/api/v1`
+Base URL: `https://{broker-endpoint}/api/v1`
 
 ### 4.1. Agents
 
@@ -196,7 +196,7 @@ pending → provisioning → starting → running → stopping → stopped
 
 | State | Description |
 |-------|-------------|
-| `pending` | Received by Host, not yet processing |
+| `pending` | Received by Broker, not yet processing |
 | `provisioning` | Pulling images, creating volumes/PVCs |
 | `starting` | Container created, waiting for ready check |
 | `running` | Healthy and ready |
@@ -206,7 +206,7 @@ pending → provisioning → starting → running → stopping → stopped
 
 #### List Agents
 
-Returns agents running on this host.
+Returns agents running on this broker.
 
 ```
 GET /api/v1/agents
@@ -510,7 +510,7 @@ GET /api/v1/agents/{agentId}/stats
 }
 ```
 
-#### Host Health
+#### Broker Health
 
 ```
 GET /healthz
@@ -527,7 +527,7 @@ GET /healthz
 }
 ```
 
-#### Host Info
+#### Broker Info
 
 ```
 GET /api/v1/info
@@ -536,7 +536,7 @@ GET /api/v1/info
 **Response:** `200 OK`
 ```json
 {
-  "hostId": "host-abc",
+  "brokerId": "broker-abc",
   "name": "Production K8s East",
   "version": "1.2.3",
   "mode": "connected",
@@ -575,7 +575,7 @@ The Hub resolves environment variables from multiple scopes before dispatching:
 
 1. **User scope:** Variables/secrets defined for the agent's owner
 2. **Grove scope:** Variables/secrets defined for the grove
-3. **Runtime Broker scope:** Variables/secrets defined for the target host
+3. **Runtime Broker scope:** Variables/secrets defined for the target broker
 4. **Agent config:** Variables explicitly set in the agent creation request
 
 Later scopes override earlier ones. See `hosted-architecture.md` Section 6 for the full design.
@@ -588,7 +588,7 @@ The `resolvedEnv` field in the agent creation request contains the final merged 
 {
   "resolvedEnv": {
     "ANTHROPIC_API_KEY": "sk-...",   // Secret from user scope
-    "LOG_LEVEL": "debug",            // Env var from host scope
+    "LOG_LEVEL": "debug",            // Env var from broker scope
     "PROJECT_ID": "my-project"       // Env var from grove scope
   }
 }
@@ -650,7 +650,7 @@ All errors return a standardized JSON body:
 ### 6.3. Naming Conventions
 
 All JSON fields use **camelCase**:
-- `agentId`, `groveId`, `hostId`
+- `agentId`, `groveId`, `brokerId`
 - `requestId`, `eventId`
 - `createdAt`, `updatedAt`
 
@@ -681,7 +681,7 @@ All status values use **lowercase**:
 ## 8. Implementation Plan
 
 1. **Phase 1:** Define Go interfaces/structs for API models (aligned with Hub API types)
-2. **Phase 2:** Implement Host API Server (wrapping `pkg/agent.Manager`)
+2. **Phase 2:** Implement Broker API Server (wrapping `pkg/agent.Manager`)
 3. **Phase 3:** Implement Hub client for Direct HTTP mode
 4. **Phase 4:** Implement Control Channel adapter (translates WS commands to local API calls)
 

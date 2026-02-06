@@ -116,7 +116,7 @@ Runtime Broker API: running (port 9800)
 Hub API: running (port 9810)
   Health: healthy
   Uptime: 2h 15m
-  Connected Hosts: 3
+  Connected Brokers: 3
   Active Groves: 12
 
 Web Frontend: running (port 9820)
@@ -140,7 +140,7 @@ Each server has a dedicated port that remains consistent regardless of deploymen
 **Rationale:**
 - Ports in the 9800-9899 range are unassigned by IANA
 - Fixed ports enable predictable firewall/ingress configuration
-- Runtime hosts can assume `localhost:9810` for Hub when not explicitly configured
+- Runtime brokers can assume `localhost:9810` for Hub when not explicitly configured
 - Web Frontend can assume `localhost:9810` for Hub API when co-located
 
 **Configuration Override:**
@@ -178,8 +178,8 @@ Environment variables follow the pattern: `SCION_<SECTION>_<KEY>`
 
 | Variable | Maps To |
 |----------|---------|
-| `SCION_SERVER_RUNTIME_HOST_PORT` | `server.runtimeBroker.port` |
-| `SCION_SERVER_RUNTIME_HOST_ENABLED` | `server.runtimeBroker.enabled` |
+| `SCION_SERVER_RUNTIME_BROKER_PORT` | `server.runtimeBroker.port` |
+| `SCION_SERVER_RUNTIME_BROKER_ENABLED` | `server.runtimeBroker.enabled` |
 | `SCION_SERVER_HUB_PORT` | `server.hub.port` |
 | `SCION_SERVER_HUB_ENABLED` | `server.hub.enabled` |
 | `SCION_SERVER_HUB_DATABASE_URL` | `server.hub.database.url` |
@@ -308,7 +308,7 @@ When the Runtime Broker API needs to communicate with a Hub:
             │                                                   │
             │  ┌───────────┐  ┌───────────┐  ┌───────────┐      │
             │  │  Runtime  │  │    Hub    │  │    Web    │      │
-            │  │ Host API  │  │    API    │  │  Frontend │      │
+            │  │Broker API │  │    API    │  │  Frontend │      │
             │  │  :9800    │  │   :9810   │  │   :9820   │      │
             │  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘      │
             │        │              │              │            │
@@ -367,7 +367,7 @@ When the Runtime Broker API needs to communicate with a Hub:
    a. Invalidate sessions (optional, based on config)
    b. Close SSE/WebSocket connections to clients
 4. If Hub enabled:
-   a. Send disconnect to connected hosts
+   a. Send disconnect to connected brokers
    b. Close WebSocket connections gracefully
 5. If Runtime Broker enabled:
    a. Send heartbeat with "shutting_down" status
@@ -430,7 +430,7 @@ GET /healthz
     "websocket": "healthy"
   },
   "stats": {
-    "connectedHosts": 3,
+    "connectedBrokers": 3,
     "activeAgents": 15,
     "groves": 8
   }
@@ -479,7 +479,7 @@ GET /healthz
 |------|----------|
 | **None** | Local development, localhost only |
 | **Server TLS** | Production Hub, public endpoints |
-| **mTLS** | Hub-to-Host communication, high security |
+| **mTLS** | Hub-to-Broker communication, high security |
 
 ### 7.2 Certificate Configuration
 
@@ -490,7 +490,7 @@ server:
     certFile: "/etc/scion/tls/server.crt"
     keyFile: "/etc/scion/tls/server.key"
 
-    # For mTLS (Host verification)
+    # For mTLS (Broker verification)
     clientCA: "/etc/scion/tls/ca.crt"
     clientAuth: "verify"  # require client certs
 ```
@@ -562,7 +562,7 @@ scion_runtime_api_requests_total{method="POST",path="/agents",status="201"} 100
 
 **Hub API:**
 ```
-scion_hub_connected_hosts_total 3
+scion_hub_connected_brokers_total 3
 scion_hub_active_groves_total 8
 scion_hub_websocket_connections_current 15
 scion_hub_api_requests_total{method="GET",path="/agents",status="200"} 500
@@ -621,7 +621,7 @@ CREATE TABLE env_vars (
     key         TEXT NOT NULL,
     value       TEXT NOT NULL,
     scope       TEXT NOT NULL,             -- 'user', 'grove', 'runtime_broker'
-    scope_id    TEXT NOT NULL,             -- user_id, grove_id, or host_id
+    scope_id    TEXT NOT NULL,             -- user_id, grove_id, or broker_id
     description TEXT,
     sensitive   BOOLEAN DEFAULT FALSE,     -- mask in UI/logs
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -643,7 +643,7 @@ CREATE TABLE secrets (
     key         TEXT NOT NULL,
     value       TEXT NOT NULL,             -- Future: encrypted blob
     scope       TEXT NOT NULL,             -- 'user', 'grove', 'runtime_broker'
-    scope_id    TEXT NOT NULL,             -- user_id, grove_id, or host_id
+    scope_id    TEXT NOT NULL,             -- user_id, grove_id, or broker_id
     description TEXT,
     version     INTEGER DEFAULT 1,         -- incremented on update
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -926,7 +926,7 @@ server:
 ### 14.2 Authentication
 
 - Runtime Broker API: Bearer token from Hub registration
-- Hub API: User bearer tokens, API keys, or agent/host tokens
+- Hub API: User bearer tokens, API keys, or agent/broker tokens
 - Web Frontend: Session cookies, OAuth tokens
 - WebSocket: Query parameter tokens or ticket-based auth
 
