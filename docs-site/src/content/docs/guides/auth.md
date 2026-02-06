@@ -11,7 +11,7 @@ Scion recognizes four primary identity types:
 
 1.  **Users**: Humans interacting via the CLI or Web Dashboard. Authenticated via OAuth or Development tokens.
 2.  **Agents**: Running LLM instances. Authenticated via short-lived JWTs issued by the Hub during provisioning.
-3.  **Runtime Hosts**: Infrastructure nodes that execute agents. Authenticated via Host tokens.
+3.  **Runtime Brokers**: Infrastructure nodes that execute agents. Authenticated via Broker tokens.
 4.  **Development User**: A special identity used for local development and zero-config testing.
 
 ## Authentication Methods
@@ -114,7 +114,7 @@ Users can authenticate the CLI against a Scion Hub using the following flow:
 
 ## Agent Authentication
 
-Agents are automatically authenticated. When the Hub dispatches an agent to a Runtime Host, it includes a one-time-use **Agent Token**.
+Agents are automatically authenticated. When the Hub dispatches an agent to a Runtime Broker, it includes a one-time-use **Agent Token**.
 - The agent uses this token for all calls back to the Hub (e.g., updating status, streaming logs).
 - Tokens are scoped to the specific agent and its grove.
 - Tokens have a default expiration (typically 24 hours).

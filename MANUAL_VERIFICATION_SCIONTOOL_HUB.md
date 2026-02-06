@@ -5,14 +5,14 @@ This document outlines the steps to manually verify that a Hub-provisioned agent
 ## Prerequisites
 
 1.  **Scion Hub** running (default port 9810).
-2.  **Runtime Host** running and registered with the Hub.
+2.  **Runtime Broker** running and registered with the Hub.
 3.  **CLI** configured to use the Hub (`scion hub login`).
 
 ## Steps
 
 ### 1. Provision a Hosted Agent
 
-Start an agent in hosted mode. This will ensure the Hub generates a JWT and the Runtime Host injects the necessary environment variables.
+Start an agent in hosted mode. This will ensure the Hub generates a JWT and the Runtime Broker injects the necessary environment variables.
 
 ```bash
 # Create a grove if one doesn't exist

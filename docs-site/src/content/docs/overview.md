@@ -39,8 +39,8 @@ Scion follows a Manager-Worker architecture:
 
 ```d2
 User -> Scion CLI: Start Agent
-Scion CLI -> Runtime Host: Provision Container
-Runtime Host -> Agent Container: Execute Task
+Scion CLI -> Runtime Broker: Provision Container
+Runtime Broker -> Agent Container: Execute Task
 Agent Container -> Scion CLI: Progress Updates
 ```
 

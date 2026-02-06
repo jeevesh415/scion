@@ -76,7 +76,7 @@ The telemetry pipeline in sciontool collects and forwards OpenTelemetry (OTLP) d
 | Session Metrics | Gemini session files | Token counts, turn counts, tool statistics |
 | Lifecycle Events | sciontool | Pre-start, post-start, pre-stop, session-end |
 | Status Updates | sciontool | Agent state changes |
-| System Logs | Hub/Runtime Host | Structured logs via OTel bridge |
+| System Logs | Hub/Runtime Broker | Structured logs via OTel bridge |
 
 ### Privacy Controls
 
@@ -92,9 +92,9 @@ For Gemini CLI agents, sciontool automatically parses session files on session c
 
 These metrics are included as attributes on the `agent.session.end` span.
 
-### OTel Log Bridge (Hub & Runtime Host)
+### OTel Log Bridge (Hub & Runtime Broker)
 
-The Hub and Runtime Host servers can forward their internal logs to an OTLP endpoint using the OpenTelemetry log bridge pattern:
+The Hub and Runtime Broker servers can forward their internal logs to an OTLP endpoint using the OpenTelemetry log bridge pattern:
 
 ```bash
 # Enable OTel log forwarding

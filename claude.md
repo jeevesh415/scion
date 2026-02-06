@@ -3,7 +3,7 @@
 ## Overview
 > **Note**: This project is currently in a pre-release/alpha stage.
 
-`scion` is a container-based orchestration platform designed to manage concurrent LLM-based code agents. It supports both a standalone local CLI mode and a distributed "Hosted" architecture where state is centralized in a Hub and agents execute on disparate Runtime Hosts (local Docker, remote servers, or Kubernetes clusters).
+`scion` is a container-based orchestration platform designed to manage concurrent LLM-based code agents. It supports both a standalone local CLI mode and a distributed "Hosted" architecture where state is centralized in a Hub and agents execute on disparate Runtime Brokers (local Docker, remote servers, or Kubernetes clusters).
 
 ## System Goals
 - **Parallelism**: Run multiple agents concurrently as independent processes.
@@ -45,7 +45,7 @@
 ### Hosted Architecture
 - **Scion Hub (State Server):** Centralized API and database for agent state, groves, templates, and users.
 - **Grove (Project):** The primary unit of registration. Represents a project/repository (identified by Git remote).
-- **Runtime Host:** A compute node that executes agents. Hosts register the Groves they serve.
+- **Runtime Broker:** A compute node that executes agents. Brokers register the Groves they serve.
 - **Templates:** Configuration blueprints for agents. Managed via the Hub, supporting versioning and storage (GCS/Local).
 
 ## Project Structure
@@ -58,7 +58,7 @@
   - `hub/`: Implementation of the Scion Hub (State Server) API and logic.
   - `hubclient/`: Client library for interacting with the Scion Hub API.
   - `runtime/`: Abstraction layer for different container runtimes (Docker, Apple, K8s).
-  - `runtimehost/`: Logic for the compute node that executes agents.
+  - `runtimebroker/`: Logic for the compute node that executes agents.
   - `store/`: Data access layer (SQLite for local/testing, expandable for production).
 - `web/`: The web frontend application.
   - `src/client`: React-based SPA.
@@ -72,7 +72,7 @@
 - **Updating Templates**: **DO NOT** manually update the `.scion/` folder in this repo to change default behavior. Instead:
   1. Modify the source files in `pkg/config/embeds/`.
   2. The seeding logic in `pkg/config/init.go` uses `//go:embed` to package these files.
-- **Hub/Runtime Separation**: Ensure distinct separation between state management (Hub) and execution logic (Runtime Host).
+- **Hub/Runtime Separation**: Ensure distinct separation between state management (Hub) and execution logic (Runtime Broker).
 - **Harness Logic**: LLM-specific interactions should be encapsulated in `pkg/harness`.
 - **Refactoring**: Since the project is in alpha, refactoring that modifies or removes behavior does not require graceful deprecation.
 

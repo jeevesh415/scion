@@ -3,14 +3,14 @@ title: Web Dashboard
 description: Using the Scion Web Dashboard for visualization and control.
 ---
 
-The Scion Web Dashboard provides a visual interface for managing your agents, groves, and runtime hosts. It complements the CLI by providing real-time status updates and easier management of complex environments.
+The Scion Web Dashboard provides a visual interface for managing your agents, groves, and runtime brokers. It complements the CLI by providing real-time status updates and easier management of complex environments.
 
 ## Overview
 
 The dashboard is organized into several key areas:
 
 ### Dashboard Home
-The landing page provides an overview of your active agents across all groves and the status of your runtime hosts.
+The landing page provides an overview of your active agents across all groves and the status of your runtime brokers.
 
 ### Groves
 View and manage your registered groves.
@@ -25,10 +25,10 @@ Detailed view for individual agents.
 - **Terminal (Upcoming)**: Interactive terminal access to the agent's workspace.
 - **Lifecycle Control**: Start, stop, restart, or delete agents from the UI.
 
-### Runtime Hosts
+### Runtime Brokers
 Monitor the infrastructure nodes where your agents are executing.
-- **Status**: See which hosts are online and their current load.
-- **Configuration**: View host capabilities (Docker, K8s, etc.).
+- **Status**: See which brokers are online and their current load.
+- **Configuration**: View broker capabilities (Docker, K8s, etc.).
 
 ## Authentication
 

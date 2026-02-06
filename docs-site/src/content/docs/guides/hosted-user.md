@@ -29,7 +29,7 @@ In a team environment, a "Grove" represents a shared project or repository.
 
 ## Shared Infrastructure
 
-When you start an agent in a team workflow, the Hub dispatches it to an available **Runtime Host**.
+When you start an agent in a team workflow, the Hub dispatches it to an available **Runtime Broker**.
 - **Isolation**: Each team member's agents run in isolated containers.
 - **Persistence**: Agent state and logs are centralized on the Hub, making them visible to other team members (based on permissions).
 - **Resources**: Offload agent execution from your local machine to powerful remote servers or Kubernetes clusters.
@@ -49,4 +49,4 @@ scion hub secret set GITHUB_TOKEN=ghp_...
 
 - **Shared Visibility**: Use the Web Dashboard to see what agents your team is running.
 - **Shared Templates**: Use centrally managed templates for consistent agent behavior across the team.
-- **Attach to Remote Agents**: You can `scion attach` to an agent running on a remote Runtime Host just as if it were local.
+- **Attach to Remote Agents**: You can `scion attach` to an agent running on a remote Runtime Broker just as if it were local.

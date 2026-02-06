@@ -737,7 +737,7 @@ telemetry:
   resource:
     service.name: "scion-agent"
     # Additional attributes from environment:
-    # agent.id, grove.id, runtime.host populated automatically
+    # agent.id, grove.id, runtime.broker populated automatically
 ```
 
 ---

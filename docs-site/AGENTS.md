@@ -41,7 +41,7 @@ The documentation is organized into five functional pillars. The "Intersection" 
 *   **Local Governance**: Detailed `settings.json` configuration and environment variable substitution.
 *   **Infrastructure Deployment**:
     *   Setting up the Scion Hub (Persistence, NATS, Web Server).
-    *   Provisioning Runtime Hosts (Docker, Apple Virtualization).
+    *   Provisioning Runtime Brokers (Docker, Apple Virtualization).
     *   Kubernetes Integration (Pod management, SCM strategies).
 *   **Security & Identity**:
     *   Authentication flows (OAuth vs. Dev Auth).
@@ -56,7 +56,7 @@ The documentation is organized into five functional pillars. The "Intersection" 
 
 ### V. Technical Reference (Everyone)
 *   **CLI Reference**: Generated command documentation.
-*   **API Reference**: Hub and Runtime Host REST/WebSocket specifications.
+*   **API Reference**: Hub and Runtime Broker REST/WebSocket specifications.
 *   **Configuration Schemas**: `settings.json` and `scion-agent.json` field definitions.
 
 ## 3. Handling the Intersections

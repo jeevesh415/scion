@@ -33,7 +33,7 @@ Telemetry is configured via environment variables. This follows the same pattern
 | `SCION_TELEMETRY_FILTER_INCLUDE` | (empty) | Comma-separated event types to include (empty = all) |
 | `SCION_TELEMETRY_REDACT` | `prompt,user.email,tool_output,tool_input` | Comma-separated fields to redact |
 | `SCION_TELEMETRY_HASH` | `session_id` | Comma-separated fields to hash (SHA256) |
-| `SCION_OTEL_LOG_ENABLED` | (auto) | Enable OTel log bridge for Hub/Runtime Host |
+| `SCION_OTEL_LOG_ENABLED` | (auto) | Enable OTel log bridge for Hub/Runtime Broker |
 
 ### Basic Setup
 

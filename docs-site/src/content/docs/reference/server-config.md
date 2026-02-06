@@ -1,8 +1,8 @@
 ---
-title: Server Configuration (Hub & Runtime Host)
+title: Server Configuration (Hub & Runtime Broker)
 ---
 
-This document describes the configuration for the Scion Hub (State Server) and the Scion Runtime Host services.
+This document describes the configuration for the Scion Hub (State Server) and the Scion Runtime Broker services.
 
 ## Purpose
 Server configuration controls the operational behavior of the Scion backend components in a "Hosted" or distributed architecture. This includes network settings, database connections, and security configurations.
@@ -28,18 +28,18 @@ Configuration for the central Hub API server.
 | `corsAllowedHeaders` | list | `[...]` | Allowed headers including Scion-specific tokens. |
 | `corsMaxAge` | int | `3600` | How long the results of a preflight request can be cached. |
 
-### RuntimeHost Section (`runtimeHost`)
-Configuration for the execution host service.
+### RuntimeBroker Section (`runtimeBroker`)
+Configuration for the Runtime Broker service.
 
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `enabled` | bool | `false` | Whether to start the Runtime Host API. |
+| `enabled` | bool | `false` | Whether to start the Runtime Broker API. |
 | `port` | int | `9800` | The HTTP port to listen on. |
 | `host` | string | `0.0.0.0` | The network address to bind to. |
 | `mode` | string | `connected` | Operational mode (currently only `connected` supported). |
 | `hubEndpoint` | string | | The Hub API endpoint for status reporting. |
-| `hostId` | string | (auto) | Unique identifier for this host (persisted in settings). |
-| `hostName` | string | | Human-readable name for this runtime host. |
+| `brokerId` | string | (auto) | Unique identifier for this broker (persisted in settings). |
+| `brokerName` | string | | Human-readable name for this runtime broker. |
 
 ### Database Section (`database`)
 Persistence settings for the Hub.

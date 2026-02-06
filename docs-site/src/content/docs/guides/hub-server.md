@@ -3,14 +3,14 @@ title: Setting up the Scion Hub
 description: Installation and configuration of the Scion Hub (State Server).
 ---
 
-The **Scion Hub** is the central brain of a hosted Scion architecture. It maintains the state of all agents, groves, and runtime hosts, and provides the API used by the CLI and Web Dashboard.
+The **Scion Hub** is the central brain of a hosted Scion architecture. It maintains the state of all agents, groves, and runtime brokers, and provides the API used by the CLI and Web Dashboard.
 
 ## Running the Hub
 
 The Hub is part of the main `scion` binary. You can start it using the `server` command:
 
 ```bash
-# Start the Hub and a local Runtime Host
+# Start the Hub and a local Runtime Broker
 scion server
 
 # Start ONLY the Hub
