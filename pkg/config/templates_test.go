@@ -609,3 +609,67 @@ func TestImageFieldLoadingAndMerging(t *testing.T) {
 		t.Errorf("MergeScionConfig (empty override): expected 'base-image:v1', got '%s'", resultEmpty.Image)
 	}
 }
+
+func TestMergeScionConfigServices(t *testing.T) {
+	t.Run("override replaces base services", func(t *testing.T) {
+		base := &api.ScionConfig{
+			Services: []api.ServiceSpec{
+				{Name: "svc1", Command: []string{"cmd1"}},
+			},
+		}
+		override := &api.ScionConfig{
+			Services: []api.ServiceSpec{
+				{Name: "svc2", Command: []string{"cmd2"}},
+				{Name: "svc3", Command: []string{"cmd3"}},
+			},
+		}
+		result := MergeScionConfig(base, override)
+		if len(result.Services) != 2 {
+			t.Fatalf("expected 2 services, got %d", len(result.Services))
+		}
+		if result.Services[0].Name != "svc2" || result.Services[1].Name != "svc3" {
+			t.Errorf("expected services [svc2, svc3], got [%s, %s]", result.Services[0].Name, result.Services[1].Name)
+		}
+	})
+
+	t.Run("nil override preserves base services", func(t *testing.T) {
+		base := &api.ScionConfig{
+			Services: []api.ServiceSpec{
+				{Name: "svc1", Command: []string{"cmd1"}},
+			},
+		}
+		override := &api.ScionConfig{}
+		result := MergeScionConfig(base, override)
+		if len(result.Services) != 1 || result.Services[0].Name != "svc1" {
+			t.Errorf("expected base services preserved, got %v", result.Services)
+		}
+	})
+
+	t.Run("override with empty slice clears services", func(t *testing.T) {
+		base := &api.ScionConfig{
+			Services: []api.ServiceSpec{
+				{Name: "svc1", Command: []string{"cmd1"}},
+			},
+		}
+		override := &api.ScionConfig{
+			Services: []api.ServiceSpec{},
+		}
+		result := MergeScionConfig(base, override)
+		if len(result.Services) != 0 {
+			t.Errorf("expected empty services, got %v", result.Services)
+		}
+	})
+
+	t.Run("no base services with override", func(t *testing.T) {
+		base := &api.ScionConfig{}
+		override := &api.ScionConfig{
+			Services: []api.ServiceSpec{
+				{Name: "svc1", Command: []string{"cmd1"}},
+			},
+		}
+		result := MergeScionConfig(base, override)
+		if len(result.Services) != 1 || result.Services[0].Name != "svc1" {
+			t.Errorf("expected override services, got %v", result.Services)
+		}
+	})
+}

@@ -10,15 +10,19 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
+	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/sciontool/hooks"
 	"github.com/ptone/scion-agent/pkg/sciontool/hooks/handlers"
 	"github.com/ptone/scion-agent/pkg/sciontool/hub"
 	"github.com/ptone/scion-agent/pkg/sciontool/log"
+	"github.com/ptone/scion-agent/pkg/sciontool/services"
 	"github.com/ptone/scion-agent/pkg/sciontool/supervisor"
 	"github.com/ptone/scion-agent/pkg/sciontool/telemetry"
 	otellog "go.opentelemetry.io/otel/log"
@@ -186,6 +190,25 @@ func runInit(args []string) int {
 		// Continue anyway - hooks failing shouldn't prevent startup
 	}
 
+	// Read and start sidecar services
+	var svcManager *services.Manager
+	home := os.Getenv("HOME")
+	servicesPath := filepath.Join(home, ".scion", "scion-services.yaml")
+	if data, err := os.ReadFile(servicesPath); err == nil {
+		var specs []api.ServiceSpec
+		if err := yaml.Unmarshal(data, &specs); err != nil {
+			log.Error("Failed to parse scion-services.yaml: %v", err)
+		} else if len(specs) > 0 {
+			log.Info("Starting %d sidecar service(s)...", len(specs))
+			svcManager = services.New(gracePeriod)
+			svcCtx := context.Background()
+			if err := svcManager.Start(svcCtx, specs, targetUID, targetGID, "scion"); err != nil {
+				log.Error("Failed to start services: %v", err)
+				// Continue — service failure shouldn't block harness
+			}
+		}
+	}
+
 	// Create supervisor with configuration
 	config := supervisor.Config{
 		GracePeriod: gracePeriod,
@@ -296,6 +319,16 @@ func runInit(args []string) int {
 			log.Error("Failed to report shutdown status to Hub: %v", err)
 		}
 		hubCancel()
+	}
+
+	// Stop sidecar services before session-end hooks
+	if svcManager != nil {
+		log.Info("Stopping sidecar services...")
+		svcShutdownCtx, svcShutdownCancel := context.WithTimeout(context.Background(), gracePeriod)
+		if err := svcManager.Shutdown(svcShutdownCtx); err != nil {
+			log.Error("Failed to stop services: %v", err)
+		}
+		svcShutdownCancel()
 	}
 
 	// Run session-end hooks (graceful shutdown)

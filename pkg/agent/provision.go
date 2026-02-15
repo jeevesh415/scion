@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/harness"
@@ -344,6 +346,21 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 		infoData, err := json.MarshalIndent(finalScionCfg.Info, "", "  ")
 		if err == nil {
 			_ = os.WriteFile(filepath.Join(agentHome, "agent-info.json"), infoData, 0644)
+		}
+	}
+
+	// Write scion-services.yaml for sciontool to consume at container startup
+	if len(finalScionCfg.Services) > 0 {
+		scionDir := filepath.Join(agentHome, ".scion")
+		if err := os.MkdirAll(scionDir, 0755); err != nil {
+			return "", "", nil, fmt.Errorf("failed to create agent .scion directory: %w", err)
+		}
+		servicesData, err := yaml.Marshal(finalScionCfg.Services)
+		if err != nil {
+			return "", "", nil, fmt.Errorf("failed to marshal services config: %w", err)
+		}
+		if err := os.WriteFile(filepath.Join(scionDir, "scion-services.yaml"), servicesData, 0644); err != nil {
+			return "", "", nil, fmt.Errorf("failed to write scion-services.yaml: %w", err)
 		}
 	}
 

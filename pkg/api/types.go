@@ -21,6 +21,63 @@ import (
 	"time"
 )
 
+// ServiceSpec defines a sidecar process to run alongside the main harness.
+type ServiceSpec struct {
+	Name       string            `json:"name" yaml:"name"`
+	Command    []string          `json:"command" yaml:"command"`
+	Restart    string            `json:"restart,omitempty" yaml:"restart,omitempty"`
+	Env        map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	ReadyCheck *ReadyCheck       `json:"ready_check,omitempty" yaml:"ready_check,omitempty"`
+}
+
+// ReadyCheck defines a readiness gate for a service.
+type ReadyCheck struct {
+	Type    string `json:"type" yaml:"type"`       // "tcp", "http", "delay"
+	Target  string `json:"target" yaml:"target"`   // "localhost:9222", "http://localhost:8080/health", "3s"
+	Timeout string `json:"timeout" yaml:"timeout"` // max wait before giving up
+}
+
+// ValidateServices validates a slice of ServiceSpec entries.
+func ValidateServices(services []ServiceSpec) error {
+	seen := make(map[string]bool, len(services))
+	for i, svc := range services {
+		if svc.Name == "" {
+			return fmt.Errorf("services[%d]: missing required field: name", i)
+		}
+		if seen[svc.Name] {
+			return fmt.Errorf("services[%d]: duplicate service name: %q", i, svc.Name)
+		}
+		seen[svc.Name] = true
+
+		if len(svc.Command) == 0 {
+			return fmt.Errorf("services[%d] (%s): missing required field: command", i, svc.Name)
+		}
+
+		switch svc.Restart {
+		case "", "no", "on-failure", "always":
+			// valid
+		default:
+			return fmt.Errorf("services[%d] (%s): invalid restart policy: %q (must be \"no\", \"on-failure\", or \"always\")", i, svc.Name, svc.Restart)
+		}
+
+		if svc.ReadyCheck != nil {
+			switch svc.ReadyCheck.Type {
+			case "tcp", "http", "delay":
+				// valid
+			default:
+				return fmt.Errorf("services[%d] (%s): invalid ready_check type: %q (must be \"tcp\", \"http\", or \"delay\")", i, svc.Name, svc.ReadyCheck.Type)
+			}
+			if svc.ReadyCheck.Target == "" {
+				return fmt.Errorf("services[%d] (%s): ready_check missing required field: target", i, svc.Name)
+			}
+			if svc.ReadyCheck.Timeout == "" {
+				return fmt.Errorf("services[%d] (%s): ready_check missing required field: timeout", i, svc.Name)
+			}
+		}
+	}
+	return nil
+}
+
 type AgentK8sMetadata struct {
 	Cluster   string `json:"cluster"`
 	Namespace string `json:"namespace"`
@@ -114,6 +171,7 @@ type ScionConfig struct {
 	Gemini      *GeminiConfig     `json:"gemini,omitempty" yaml:"gemini,omitempty"`
 	Resources   *ResourceSpec     `json:"resources,omitempty" yaml:"resources,omitempty"`
 	Image       string            `json:"image,omitempty" yaml:"image,omitempty"`
+	Services    []ServiceSpec     `json:"services,omitempty" yaml:"services,omitempty"`
 
 	// Info contains persisted metadata about the agent
 	Info *AgentInfo `json:"-" yaml:"-"`

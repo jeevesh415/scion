@@ -148,3 +148,168 @@ func TestValidateVolumes(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateServices(t *testing.T) {
+	tests := []struct {
+		name     string
+		services []ServiceSpec
+		wantErr  string
+	}{
+		{
+			name:     "nil slice is valid",
+			services: nil,
+			wantErr:  "",
+		},
+		{
+			name:     "empty slice is valid",
+			services: []ServiceSpec{},
+			wantErr:  "",
+		},
+		{
+			name: "valid service minimal",
+			services: []ServiceSpec{
+				{Name: "svc1", Command: []string{"sleep", "10"}},
+			},
+			wantErr: "",
+		},
+		{
+			name: "valid service with all fields",
+			services: []ServiceSpec{
+				{
+					Name:    "chrome-mcp",
+					Command: []string{"npx", "@anthropic-ai/chrome-devtools-mcp@latest"},
+					Restart: "on-failure",
+					Env:     map[string]string{"CHROME_PATH": "/usr/bin/chromium"},
+					ReadyCheck: &ReadyCheck{
+						Type:    "tcp",
+						Target:  "localhost:9222",
+						Timeout: "30s",
+					},
+				},
+			},
+			wantErr: "",
+		},
+		{
+			name: "valid multiple services",
+			services: []ServiceSpec{
+				{Name: "svc1", Command: []string{"cmd1"}, Restart: "always"},
+				{Name: "svc2", Command: []string{"cmd2"}, Restart: "no"},
+			},
+			wantErr: "",
+		},
+		{
+			name: "missing name",
+			services: []ServiceSpec{
+				{Command: []string{"cmd"}},
+			},
+			wantErr: "missing required field: name",
+		},
+		{
+			name: "missing command",
+			services: []ServiceSpec{
+				{Name: "svc1"},
+			},
+			wantErr: "missing required field: command",
+		},
+		{
+			name: "empty command slice",
+			services: []ServiceSpec{
+				{Name: "svc1", Command: []string{}},
+			},
+			wantErr: "missing required field: command",
+		},
+		{
+			name: "invalid restart policy",
+			services: []ServiceSpec{
+				{Name: "svc1", Command: []string{"cmd"}, Restart: "never"},
+			},
+			wantErr: "invalid restart policy",
+		},
+		{
+			name: "duplicate names",
+			services: []ServiceSpec{
+				{Name: "svc1", Command: []string{"cmd1"}},
+				{Name: "svc1", Command: []string{"cmd2"}},
+			},
+			wantErr: "duplicate service name",
+		},
+		{
+			name: "invalid ready_check type",
+			services: []ServiceSpec{
+				{
+					Name:    "svc1",
+					Command: []string{"cmd"},
+					ReadyCheck: &ReadyCheck{
+						Type:    "grpc",
+						Target:  "localhost:50051",
+						Timeout: "10s",
+					},
+				},
+			},
+			wantErr: "invalid ready_check type",
+		},
+		{
+			name: "ready_check missing target",
+			services: []ServiceSpec{
+				{
+					Name:    "svc1",
+					Command: []string{"cmd"},
+					ReadyCheck: &ReadyCheck{
+						Type:    "tcp",
+						Timeout: "10s",
+					},
+				},
+			},
+			wantErr: "ready_check missing required field: target",
+		},
+		{
+			name: "ready_check missing timeout",
+			services: []ServiceSpec{
+				{
+					Name:    "svc1",
+					Command: []string{"cmd"},
+					ReadyCheck: &ReadyCheck{
+						Type:   "http",
+						Target: "http://localhost:8080/health",
+					},
+				},
+			},
+			wantErr: "ready_check missing required field: timeout",
+		},
+		{
+			name: "valid ready_check types",
+			services: []ServiceSpec{
+				{
+					Name: "svc-tcp", Command: []string{"cmd"},
+					ReadyCheck: &ReadyCheck{Type: "tcp", Target: "localhost:8080", Timeout: "5s"},
+				},
+				{
+					Name: "svc-http", Command: []string{"cmd"},
+					ReadyCheck: &ReadyCheck{Type: "http", Target: "http://localhost:8080/health", Timeout: "10s"},
+				},
+				{
+					Name: "svc-delay", Command: []string{"cmd"},
+					ReadyCheck: &ReadyCheck{Type: "delay", Target: "3s", Timeout: "5s"},
+				},
+			},
+			wantErr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateServices(tt.services)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("ValidateServices() unexpected error: %v", err)
+				}
+			} else {
+				if err == nil {
+					t.Errorf("ValidateServices() expected error containing %q, got nil", tt.wantErr)
+				} else if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("ValidateServices() error = %q, want containing %q", err.Error(), tt.wantErr)
+				}
+			}
+		})
+	}
+}

@@ -647,3 +647,83 @@ env:
 		t.Errorf("expected error to mention 'failed to load config from template', got: %v", err)
 	}
 }
+
+func TestProvisionAgent_WritesServicesFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	oldWd, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(oldWd)
+
+	originalHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", originalHome)
+	os.Setenv("HOME", tmpDir)
+
+	globalScionDir := filepath.Join(tmpDir, ".scion")
+	globalTemplatesDir := filepath.Join(globalScionDir, "templates")
+	os.MkdirAll(globalTemplatesDir, 0755)
+
+	t.Run("services written when defined", func(t *testing.T) {
+		// Create a template with services defined in YAML
+		tplDir := filepath.Join(globalTemplatesDir, "svc-tpl")
+		os.MkdirAll(tplDir, 0755)
+		tplConfigYAML := `harness: gemini
+services:
+  - name: xvfb
+    command: ["Xvfb", ":99"]
+    restart: always
+    env:
+      DISPLAY: ":99"
+  - name: chrome-mcp
+    command: ["npx", "chrome-mcp"]
+    restart: on-failure
+`
+		os.WriteFile(filepath.Join(tplDir, "scion-agent.yaml"), []byte(tplConfigYAML), 0644)
+
+		projectDir := filepath.Join(tmpDir, "project-svc")
+		projectScionDir := filepath.Join(projectDir, ".scion")
+		os.MkdirAll(projectScionDir, 0755)
+
+		agentName := "svc-agent"
+		agentHome, _, _, err := ProvisionAgent(context.Background(), agentName, "svc-tpl", "", projectScionDir, "", "", "", "")
+		if err != nil {
+			t.Fatalf("ProvisionAgent failed: %v", err)
+		}
+
+		servicesFile := filepath.Join(agentHome, ".scion", "scion-services.yaml")
+		data, err := os.ReadFile(servicesFile)
+		if err != nil {
+			t.Fatalf("expected scion-services.yaml to exist, got error: %v", err)
+		}
+
+		content := string(data)
+		if !strings.Contains(content, "xvfb") {
+			t.Errorf("scion-services.yaml should contain 'xvfb', got: %s", content)
+		}
+		if !strings.Contains(content, "chrome-mcp") {
+			t.Errorf("scion-services.yaml should contain 'chrome-mcp', got: %s", content)
+		}
+	})
+
+	t.Run("no services file when none defined", func(t *testing.T) {
+		tplDir := filepath.Join(globalTemplatesDir, "no-svc-tpl")
+		os.MkdirAll(tplDir, 0755)
+		tplConfig := `{"harness": "gemini"}`
+		os.WriteFile(filepath.Join(tplDir, "scion-agent.json"), []byte(tplConfig), 0644)
+
+		projectDir := filepath.Join(tmpDir, "project-nosvc")
+		projectScionDir := filepath.Join(projectDir, ".scion")
+		os.MkdirAll(projectScionDir, 0755)
+
+		agentName := "no-svc-agent"
+		agentHome, _, _, err := ProvisionAgent(context.Background(), agentName, "no-svc-tpl", "", projectScionDir, "", "", "", "")
+		if err != nil {
+			t.Fatalf("ProvisionAgent failed: %v", err)
+		}
+
+		servicesFile := filepath.Join(agentHome, ".scion", "scion-services.yaml")
+		if _, err := os.Stat(servicesFile); !os.IsNotExist(err) {
+			t.Errorf("expected scion-services.yaml to NOT exist when no services defined")
+		}
+	})
+}

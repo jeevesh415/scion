@@ -65,6 +65,10 @@ func (t *Template) LoadConfig() (*api.ScionConfig, error) {
 		return nil, fmt.Errorf("invalid volume config in %s: %w", configPath, err)
 	}
 
+	if err := api.ValidateServices(cfg.Services); err != nil {
+		return nil, fmt.Errorf("invalid services config in %s: %w", configPath, err)
+	}
+
 	return &cfg, nil
 }
 
@@ -541,6 +545,9 @@ func MergeScionConfig(base, override *api.ScionConfig) *api.ScionConfig {
 	}
 	if override.Image != "" {
 		result.Image = override.Image
+	}
+	if override.Services != nil {
+		result.Services = override.Services
 	}
 	if override.Info != nil {
 		if result.Info == nil {
