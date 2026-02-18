@@ -45,7 +45,7 @@ func GetRuntime(grovePath string, profileName string) Runtime {
 			util.Debugf("GetRuntime: ResolveRuntime failed: %v", err)
 			// If profile resolution fails, we might be passed a direct runtime type
 			// Fallback to legacy behavior for now if profileName matches a known type
-			if profileName == "docker" || profileName == "kubernetes" || profileName == "k8s" || profileName == "container" || profileName == "remote" || profileName == "local" {
+			if profileName == "docker" || profileName == "podman" || profileName == "kubernetes" || profileName == "k8s" || profileName == "container" || profileName == "remote" || profileName == "local" {
 				runtimeType = profileName
 				util.Debugf("GetRuntime: using profileName as runtimeType: %s", runtimeType)
 			} else {
@@ -77,8 +77,14 @@ func GetRuntime(grovePath string, profileName string) Runtime {
 				util.Debugf("GetRuntime: 'container' CLI not found on macOS, using docker")
 			}
 		} else {
-			runtimeType = "docker"
-			util.Debugf("GetRuntime: non-macOS platform, using docker")
+			// On Linux, prefer podman over docker when both are available
+			if _, err := exec.LookPath("podman"); err == nil {
+				runtimeType = "podman"
+				util.Debugf("GetRuntime: detected 'podman' on Linux")
+			} else {
+				runtimeType = "docker"
+				util.Debugf("GetRuntime: 'podman' not found on Linux, using docker")
+			}
 		}
 	}
 
@@ -97,6 +103,14 @@ func GetRuntime(grovePath string, profileName string) Runtime {
 			dr.Host = rtConfig.Host
 		}
 		return dr
+	case "podman":
+		pr := NewPodmanRuntime()
+		if rtConfig.Host != "" {
+			if p, ok := pr.(*PodmanRuntime); ok {
+				p.Host = rtConfig.Host
+			}
+		}
+		return pr
 	case "kubernetes", "k8s":
 		k8sClient, err := k8s.NewClient(os.Getenv("KUBECONFIG"))
 		if err != nil {

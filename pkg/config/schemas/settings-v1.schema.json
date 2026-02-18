@@ -165,7 +165,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["docker", "container", "kubernetes"],
+          "enum": ["docker", "podman", "container", "kubernetes"],
           "description": "Runtime type. Defaults to the runtime entry name if omitted."
         },
         "host": { "type": "string" },

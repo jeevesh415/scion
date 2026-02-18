@@ -40,6 +40,9 @@ runtimes:
   docker:
     type: docker
     host: ""
+  podman:
+    type: podman
+    host: ""
   container:
     type: container
     tmux: true
