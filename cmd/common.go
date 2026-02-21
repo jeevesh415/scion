@@ -457,6 +457,7 @@ func startAgentViaHub(hubCtx *HubContext, agentName, task string, resume bool) e
 		Workspace:     workspace,
 		Resume:        resume,
 		Attach:        attach,
+		GatherEnv:    true, // Enable env-gather flow
 	}
 
 	// Build config if we have image override or debug mode
@@ -534,11 +535,22 @@ func startAgentViaHub(hubCtx *HubContext, agentName, task string, resume bool) e
 		if len(resp.Warnings) > 0 {
 			util.Debugf("[env-gather]   warnings from Hub: %v", resp.Warnings)
 		}
-		// NOTE: The design calls for HTTP 202 with EnvGatherResponse when the
-		// broker/hub can't satisfy all required env vars, but this is not yet
-		// implemented. The Hub always returns 200/201 with the agent created
-		// immediately. No env-gather round-trip back to CLI occurs.
-		util.Debugf("[env-gather] startAgentViaHub: env-gather phase did NOT occur (not implemented) — agent was dispatched directly to broker without CLI env fallback")
+	}
+
+	// Handle env-gather: if the Hub returned env requirements, gather from local env and submit
+	if resp.EnvGather != nil {
+		if debugMode {
+			util.Debugf("[env-gather] startAgentViaHub: Hub returned 202 with env requirements")
+			util.Debugf("[env-gather]   required: %v", resp.EnvGather.Required)
+			util.Debugf("[env-gather]   needs: %v", resp.EnvGather.Needs)
+		}
+
+		submitResp, err := gatherAndSubmitEnv(ctx, hubCtx, groveID, resp)
+		if err != nil {
+			return fmt.Errorf("env-gather failed: %w", err)
+		}
+		// Replace response with the finalized one
+		resp = submitResp
 	}
 
 	// Advance watermark to the hub-assigned creation time so this agent
@@ -816,6 +828,97 @@ func createAgentWithBrokerResolution(ctx context.Context, hubCtx *HubContext, gr
 		}
 		// Loop and retry with selected broker
 	}
+}
+
+// gatherAndSubmitEnv handles the env-gather flow: checks the local environment
+// for missing keys and submits gathered values back to the Hub.
+func gatherAndSubmitEnv(ctx context.Context, hubCtx *HubContext, groveID string, resp *hubclient.CreateAgentResponse) (*hubclient.CreateAgentResponse, error) {
+	gather := resp.EnvGather
+	agentID := gather.AgentID
+	if agentID == "" && resp.Agent != nil {
+		agentID = resp.Agent.ID
+	}
+
+	// Print summary of env status
+	if !isJSONOutput() {
+		fmt.Println("\nEnvironment variable resolution:")
+		if len(gather.HubHas) > 0 {
+			for _, src := range gather.HubHas {
+				fmt.Printf("  %s — provided by Hub (%s)\n", src.Key, src.Scope)
+			}
+		}
+		if len(gather.BrokerHas) > 0 {
+			for _, key := range gather.BrokerHas {
+				fmt.Printf("  %s — provided by Broker\n", key)
+			}
+		}
+	}
+
+	// Try to satisfy needed keys from local environment
+	gatheredEnv := make(map[string]string)
+	var missingKeys []string
+	for _, key := range gather.Needs {
+		if val := os.Getenv(key); val != "" {
+			gatheredEnv[key] = val
+			if !isJSONOutput() {
+				fmt.Printf("  %s — found in local environment\n", key)
+			}
+		} else {
+			missingKeys = append(missingKeys, key)
+		}
+	}
+
+	if len(missingKeys) > 0 {
+		if !isJSONOutput() {
+			fmt.Println()
+			for _, key := range missingKeys {
+				fmt.Printf("  %s — MISSING (not in local environment)\n", key)
+			}
+			fmt.Printf("\nTo set missing variables on the Hub, use:\n")
+			for _, key := range missingKeys {
+				fmt.Printf("  scion hub env set %s <value>\n", key)
+			}
+			fmt.Println()
+		}
+		return nil, fmt.Errorf("cannot satisfy required environment variables: %v", missingKeys)
+	}
+
+	if len(gatheredEnv) == 0 {
+		// All keys were already satisfied by Hub/Broker — should not reach here
+		return resp, nil
+	}
+
+	// In interactive mode, confirm before sending env vars
+	if util.IsTerminal() && !autoConfirm {
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Printf("\nSend %d environment variable(s) to the Hub? [Y/n]: ", len(gatheredEnv))
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, fmt.Errorf("failed to read input: %w", err)
+		}
+		input = strings.TrimSpace(strings.ToLower(input))
+		if input == "n" || input == "no" {
+			return nil, fmt.Errorf("env-gather cancelled by user")
+		}
+	}
+
+	if !isJSONOutput() {
+		fmt.Printf("Submitting %d gathered environment variable(s)...\n", len(gatheredEnv))
+	}
+
+	// Submit gathered env to Hub
+	submitResp, err := hubCtx.Client.GroveAgents(groveID).SubmitEnv(ctx, agentID, &hubclient.SubmitEnvRequest{
+		Env: gatheredEnv,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to submit gathered env: %w", err)
+	}
+
+	if debugMode {
+		util.Debugf("[env-gather] gatherAndSubmitEnv: submitted %d env var(s), agent should now start", len(gatheredEnv))
+	}
+
+	return submitResp, nil
 }
 
 // printAutoResolvedBroker prints an info line when the broker was auto-resolved
