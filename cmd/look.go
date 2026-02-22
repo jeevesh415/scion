@@ -90,7 +90,7 @@ var lookCmd = &cobra.Command{
 // printLookOutput prints the captured terminal output, optionally wrapped
 // with top/bottom borders sized to the current terminal width.
 func printLookOutput(output string) {
-	if IsNonInteractive() {
+	if IsNonInteractive() || lookPlain {
 		fmt.Print(output)
 		return
 	}
