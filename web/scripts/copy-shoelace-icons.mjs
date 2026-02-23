@@ -37,6 +37,7 @@ const USED_ICONS = [
   'emoji-frown',
   'exclamation-octagon',
   'exclamation-triangle',
+  'file-earmark',
   'file-text',
   'folder',
   'folder-fill',
@@ -59,6 +60,7 @@ const USED_ICONS = [
   'sun-moon',
   'terminal',
   'trash',
+  'upload',
   'x-circle',
 ];
 

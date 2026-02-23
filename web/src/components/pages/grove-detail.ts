@@ -71,6 +71,41 @@ export class ScionPageGroveDetail extends LitElement {
   @state()
   private actionLoading: Record<string, boolean> = {};
 
+  /**
+   * Workspace files for hub-native groves
+   */
+  @state()
+  private workspaceFiles: Array<{
+    path: string;
+    size: number;
+    modTime: string;
+    mode: string;
+  }> = [];
+
+  /**
+   * Workspace loading state
+   */
+  @state()
+  private workspaceLoading = false;
+
+  /**
+   * Total size of workspace files
+   */
+  @state()
+  private workspaceTotalSize = 0;
+
+  /**
+   * Upload in progress
+   */
+  @state()
+  private uploadProgress = false;
+
+  /**
+   * Workspace error
+   */
+  @state()
+  private workspaceError: string | null = null;
+
   static override styles = css`
     :host {
       display: block;
@@ -323,6 +358,117 @@ export class ScionPageGroveDetail extends LitElement {
     .back-link:hover {
       color: var(--scion-primary, #3b82f6);
     }
+
+    .workspace-section {
+      margin-bottom: 2rem;
+    }
+
+    .workspace-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .workspace-header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .workspace-header h2 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: var(--scion-text, #1e293b);
+      margin: 0;
+    }
+
+    .workspace-meta {
+      font-size: 0.75rem;
+      color: var(--scion-text-muted, #64748b);
+    }
+
+    .file-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--scion-surface, #ffffff);
+      border: 1px solid var(--scion-border, #e2e8f0);
+      border-radius: var(--scion-radius-lg, 0.75rem);
+      overflow: hidden;
+    }
+
+    .file-table th,
+    .file-table td {
+      padding: 0.625rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--scion-border, #e2e8f0);
+    }
+
+    .file-table th {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--scion-text-muted, #64748b);
+      background: var(--scion-bg-subtle, #f8fafc);
+      font-weight: 600;
+    }
+
+    .file-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .file-name {
+      font-family: var(--scion-font-mono, monospace);
+      font-size: 0.875rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .file-name sl-icon {
+      color: var(--scion-text-muted, #64748b);
+      flex-shrink: 0;
+    }
+
+    .file-size,
+    .file-date {
+      font-size: 0.8125rem;
+      color: var(--scion-text-muted, #64748b);
+    }
+
+    .file-actions {
+      text-align: right;
+    }
+
+    .workspace-empty {
+      text-align: center;
+      padding: 2.5rem 2rem;
+      background: var(--scion-surface, #ffffff);
+      border: 1px dashed var(--scion-border, #e2e8f0);
+      border-radius: var(--scion-radius-lg, 0.75rem);
+    }
+
+    .workspace-empty sl-icon {
+      font-size: 2.5rem;
+      color: var(--scion-text-muted, #64748b);
+      opacity: 0.5;
+      margin-bottom: 0.75rem;
+    }
+
+    .workspace-empty p {
+      color: var(--scion-text-muted, #64748b);
+      margin: 0 0 1rem 0;
+      font-size: 0.875rem;
+    }
+
+    .workspace-error {
+      color: var(--sl-color-danger-600, #dc2626);
+      font-size: 0.875rem;
+      padding: 0.75rem 1rem;
+      background: var(--sl-color-danger-50, #fef2f2);
+      border-radius: var(--scion-radius, 0.5rem);
+      margin-bottom: 1rem;
+    }
   `;
 
   private boundOnAgentsUpdated = this.onAgentsUpdated.bind(this);
@@ -409,6 +555,11 @@ export class ScionPageGroveDetail extends LitElement {
         // Fallback: if grove-scoped agents endpoint fails, try filtering from all agents
         this.agents = [];
       }
+
+      // Load workspace files for hub-native groves
+      if (this.grove && !this.grove.gitRemote) {
+        void this.loadWorkspaceFiles();
+      }
     } catch (err) {
       console.error('Failed to load grove:', err);
       this.error = err instanceof Error ? err.message : 'Failed to load grove';
@@ -448,6 +599,124 @@ export class ScionPageGroveDetail extends LitElement {
     } catch {
       return dateString;
     }
+  }
+
+  private async loadWorkspaceFiles(): Promise<void> {
+    this.workspaceLoading = true;
+    this.workspaceError = null;
+
+    try {
+      const response = await fetch(
+        `/api/v1/groves/${this.groveId}/workspace/files`,
+        { credentials: 'include' }
+      );
+
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => ({}))) as { message?: string };
+        throw new Error(errorData.message || `HTTP ${response.status}`);
+      }
+
+      const data = (await response.json()) as {
+        files: Array<{ path: string; size: number; modTime: string; mode: string }>;
+        totalSize: number;
+        totalCount: number;
+      };
+
+      this.workspaceFiles = data.files || [];
+      this.workspaceTotalSize = data.totalSize || 0;
+    } catch (err) {
+      console.error('Failed to load workspace files:', err);
+      this.workspaceError = err instanceof Error ? err.message : 'Failed to load files';
+    } finally {
+      this.workspaceLoading = false;
+    }
+  }
+
+  private handleUploadClick(): void {
+    const input = this.shadowRoot?.querySelector('#workspace-file-input') as HTMLInputElement;
+    if (input) {
+      input.click();
+    }
+  }
+
+  private async handleFileUpload(e: Event): Promise<void> {
+    const input = e.target as HTMLInputElement;
+    const fileList = input.files;
+    if (!fileList || fileList.length === 0) return;
+
+    this.uploadProgress = true;
+    this.workspaceError = null;
+
+    try {
+      const formData = new FormData();
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        formData.append(file.name, file);
+      }
+
+      const response = await fetch(
+        `/api/v1/groves/${this.groveId}/workspace/files`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => ({}))) as { message?: string };
+        throw new Error(errorData.message || `Upload failed: HTTP ${response.status}`);
+      }
+
+      // Reload file list
+      await this.loadWorkspaceFiles();
+    } catch (err) {
+      console.error('Failed to upload files:', err);
+      this.workspaceError = err instanceof Error ? err.message : 'Upload failed';
+    } finally {
+      this.uploadProgress = false;
+      // Reset the input so the same files can be re-selected
+      input.value = '';
+    }
+  }
+
+  private async handleFileDelete(filePath: string): Promise<void> {
+    if (!confirm(`Delete ${filePath}?`)) return;
+
+    try {
+      // Encode each path segment individually (preserve /)
+      const encodedPath = filePath
+        .split('/')
+        .map((seg) => encodeURIComponent(seg))
+        .join('/');
+
+      const response = await fetch(
+        `/api/v1/groves/${this.groveId}/workspace/files/${encodedPath}`,
+        {
+          method: 'DELETE',
+          credentials: 'include',
+        }
+      );
+
+      if (!response.ok && response.status !== 204) {
+        const errorData = (await response.json().catch(() => ({}))) as { message?: string };
+        throw new Error(errorData.message || `Delete failed: HTTP ${response.status}`);
+      }
+
+      // Reload file list
+      await this.loadWorkspaceFiles();
+    } catch (err) {
+      console.error('Failed to delete file:', err);
+      this.workspaceError = err instanceof Error ? err.message : 'Delete failed';
+    }
+  }
+
+  private formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    const size = bytes / Math.pow(1024, i);
+    return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
   }
 
   private async handleAgentAction(
@@ -572,11 +841,113 @@ export class ScionPageGroveDetail extends LitElement {
         </div>
       </div>
 
+      ${!this.grove.gitRemote ? this.renderWorkspaceFiles() : ''}
+
       <div class="section-header">
         <h2>Agents</h2>
       </div>
 
       ${this.agents.length === 0 ? this.renderEmptyAgents() : this.renderAgentGrid()}
+    `;
+  }
+
+  private renderWorkspaceFiles() {
+    return html`
+      <div class="workspace-section">
+        <div class="workspace-header">
+          <div class="workspace-header-left">
+            <h2>Workspace Files</h2>
+            <span class="workspace-meta">
+              ${this.workspaceFiles.length} file${this.workspaceFiles.length !== 1 ? 's' : ''}${this.workspaceTotalSize > 0 ? ` (${this.formatFileSize(this.workspaceTotalSize)})` : ''}
+            </span>
+          </div>
+          <div>
+            <input
+              type="file"
+              id="workspace-file-input"
+              multiple
+              style="display: none"
+              @change=${this.handleFileUpload}
+            />
+            <sl-button
+              size="small"
+              variant="default"
+              ?loading=${this.uploadProgress}
+              ?disabled=${this.uploadProgress}
+              @click=${() => this.handleUploadClick()}
+            >
+              <sl-icon slot="prefix" name="upload"></sl-icon>
+              Upload Files
+            </sl-button>
+          </div>
+        </div>
+
+        ${this.workspaceError
+          ? html`<div class="workspace-error">${this.workspaceError}</div>`
+          : ''}
+
+        ${this.workspaceLoading
+          ? html`
+              <div class="loading-state" style="padding: 2rem;">
+                <sl-spinner></sl-spinner>
+                <p>Loading files...</p>
+              </div>
+            `
+          : this.workspaceFiles.length === 0
+            ? html`
+                <div class="workspace-empty">
+                  <sl-icon name="file-earmark"></sl-icon>
+                  <p>No files in workspace. Upload files to seed this grove.</p>
+                  <sl-button
+                    size="small"
+                    variant="primary"
+                    ?loading=${this.uploadProgress}
+                    ?disabled=${this.uploadProgress}
+                    @click=${() => this.handleUploadClick()}
+                  >
+                    <sl-icon slot="prefix" name="upload"></sl-icon>
+                    Upload Files
+                  </sl-button>
+                </div>
+              `
+            : html`
+                <table class="file-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Size</th>
+                      <th>Modified</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${this.workspaceFiles.map(
+                      (file) => html`
+                        <tr>
+                          <td>
+                            <span class="file-name">
+                              <sl-icon name="file-earmark"></sl-icon>
+                              ${file.path}
+                            </span>
+                          </td>
+                          <td><span class="file-size">${this.formatFileSize(file.size)}</span></td>
+                          <td>
+                            <span class="file-date">${this.formatDate(file.modTime)}</span>
+                          </td>
+                          <td class="file-actions">
+                            <sl-icon-button
+                              name="trash"
+                              label="Delete ${file.path}"
+                              @click=${() => this.handleFileDelete(file.path)}
+                            ></sl-icon-button>
+                          </td>
+                        </tr>
+                      `
+                    )}
+                  </tbody>
+                </table>
+              `}
+      </div>
     `;
   }
 

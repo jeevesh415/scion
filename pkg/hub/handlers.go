@@ -1997,6 +1997,14 @@ func (s *Server) handleGroveRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for nested /workspace/files path
+	if strings.HasPrefix(subPath, "workspace/files") {
+		filePath := strings.TrimPrefix(subPath, "workspace/files")
+		filePath = strings.TrimPrefix(filePath, "/")
+		s.handleGroveWorkspace(w, r, groveID, filePath)
+		return
+	}
+
 	// Otherwise handle as grove resource
 	s.handleGroveByIDInternal(w, r, groveID, subPath)
 }
