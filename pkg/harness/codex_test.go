@@ -112,7 +112,7 @@ func TestCodexInjectAgentInstructions(t *testing.T) {
 		t.Fatalf("InjectAgentInstructions failed: %v", err)
 	}
 
-	target := filepath.Join(agentHome, "AGENTS.md")
+	target := filepath.Join(agentHome, ".codex", "AGENTS.md")
 	data, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatalf("expected file at %s: %v", target, err)
@@ -147,7 +147,7 @@ func TestCodexInjectSystemPrompt(t *testing.T) {
 		t.Fatalf("InjectSystemPrompt failed: %v", err)
 	}
 
-	target := filepath.Join(agentHome, "AGENTS.md")
+	target := filepath.Join(agentHome, ".codex", "AGENTS.md")
 	data, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatalf("expected file at %s: %v", target, err)
@@ -174,7 +174,7 @@ func TestCodexInjectSystemPrompt_NoExistingInstructions(t *testing.T) {
 		t.Fatalf("InjectSystemPrompt failed: %v", err)
 	}
 
-	target := filepath.Join(agentHome, "AGENTS.md")
+	target := filepath.Join(agentHome, ".codex", "AGENTS.md")
 	data, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatalf("expected file at %s: %v", target, err)
