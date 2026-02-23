@@ -1,13 +1,15 @@
 /**
  * Grove creation page component
  *
- * Form for creating a new grove from a git repository URL
+ * Form for creating a new grove, supporting both git-backed and hub-native modes.
  */
 
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, nothing } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 
 import '../shared/status-badge.js';
+
+type GroveMode = 'git' | 'hub';
 
 @customElement('scion-page-grove-create')
 export class ScionPageGroveCreate extends LitElement {
@@ -17,17 +19,27 @@ export class ScionPageGroveCreate extends LitElement {
   @state()
   private error: string | null = null;
 
-  @state()
-  private gitUrl = '';
-
+  /** Form field values */
   @state()
   private name = '';
 
   @state()
-  private nameManuallySet = false;
+  private slug = '';
+
+  @state()
+  private slugManuallyEdited = false;
+
+  @state()
+  private gitRemote = '';
 
   @state()
   private branch = 'main';
+
+  @state()
+  private visibility = 'private';
+
+  @state()
+  private mode: GroveMode = 'hub';
 
   static override styles = css`
     :host {
@@ -99,7 +111,8 @@ export class ScionPageGroveCreate extends LitElement {
       margin-top: 0.25rem;
     }
 
-    .form-field sl-input {
+    .form-field sl-input,
+    .form-field sl-select {
       width: 100%;
     }
 
@@ -130,22 +143,25 @@ export class ScionPageGroveCreate extends LitElement {
     }
   `;
 
+  private slugify(text: string): string {
+    return text
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
   /**
    * Extract a display name from a git URL.
    * Handles HTTPS and SSH formats.
    */
   private deriveNameFromUrl(url: string): string {
     try {
-      // Strip trailing .git
       const cleaned = url.trim().replace(/\.git$/, '');
-
-      // SSH format: git@github.com:org/repo
       const sshMatch = cleaned.match(/[:/]([^/:]+)$/);
       if (sshMatch) {
         return sshMatch[1];
       }
-
-      // HTTPS format: https://github.com/org/repo
       const parts = cleaned.split('/');
       return parts[parts.length - 1] || '';
     } catch {
@@ -153,33 +169,45 @@ export class ScionPageGroveCreate extends LitElement {
     }
   }
 
-  private onGitUrlInput(e: Event): void {
-    this.gitUrl = (e.target as HTMLElement & { value: string }).value;
-
-    // Auto-derive name if user hasn't manually set it
-    if (!this.nameManuallySet) {
-      this.name = this.deriveNameFromUrl(this.gitUrl);
+  private onNameInput(e: Event): void {
+    this.name = (e.target as HTMLElement & { value: string }).value;
+    if (!this.slugManuallyEdited) {
+      this.slug = this.slugify(this.name);
     }
   }
 
-  private onNameInput(e: Event): void {
-    const value = (e.target as HTMLElement & { value: string }).value;
-    this.name = value;
-    this.nameManuallySet = value.length > 0;
+  private onSlugInput(e: Event): void {
+    this.slug = (e.target as HTMLElement & { value: string }).value;
+    this.slugManuallyEdited = true;
+  }
+
+  private onModeChange(e: Event): void {
+    this.mode = (e.target as HTMLElement & { value: string }).value as GroveMode;
+  }
+
+  private onGitRemoteInput(e: Event): void {
+    this.gitRemote = (e.target as HTMLElement & { value: string }).value;
+
+    // Auto-derive name from git URL if name is empty
+    if (!this.name) {
+      const derived = this.deriveNameFromUrl(this.gitRemote);
+      if (derived) {
+        this.name = derived;
+        if (!this.slugManuallyEdited) {
+          this.slug = this.slugify(derived);
+        }
+      }
+    }
   }
 
   private async handleSubmit(_e: Event): Promise<void> {
-    const trimmedUrl = this.gitUrl.trim();
-
-    if (!trimmedUrl) {
-      this.error = 'Git repository URL is required.';
+    if (!this.name.trim()) {
+      this.error = 'Grove name is required.';
       return;
     }
 
-    // Use derived name if none provided
-    const displayName = this.name.trim() || this.deriveNameFromUrl(trimmedUrl);
-    if (!displayName) {
-      this.error = 'Could not determine a name from the URL. Please provide a display name.';
+    if (this.mode === 'git' && !this.gitRemote.trim()) {
+      this.error = 'Git remote URL is required for git-backed groves.';
       return;
     }
 
@@ -187,17 +215,24 @@ export class ScionPageGroveCreate extends LitElement {
     this.error = null;
 
     try {
-      const labels: Record<string, string> = {
-        'scion.dev/default-branch': this.branch.trim() || 'main',
-        'scion.dev/clone-url': trimmedUrl,
-        'scion.dev/source-url': trimmedUrl,
+      const body: Record<string, unknown> = {
+        name: this.name.trim(),
+        visibility: this.visibility,
       };
 
-      const body = {
-        name: displayName,
-        gitRemote: trimmedUrl,
-        labels,
-      };
+      if (this.slug.trim()) {
+        body.slug = this.slug.trim();
+      }
+
+      if (this.mode === 'git') {
+        const trimmedUrl = this.gitRemote.trim();
+        body.gitRemote = trimmedUrl;
+        body.labels = {
+          'scion.dev/default-branch': this.branch.trim() || 'main',
+          'scion.dev/clone-url': trimmedUrl,
+          'scion.dev/source-url': trimmedUrl,
+        };
+      }
 
       const response = await fetch('/api/v1/groves', {
         method: 'POST',
@@ -244,7 +279,7 @@ export class ScionPageGroveCreate extends LitElement {
           <sl-icon name="folder-plus"></sl-icon>
           Create Grove
         </h1>
-        <p>Create a new grove from a git repository.</p>
+        <p>Set up a new project workspace for your agents.</p>
       </div>
 
       <div class="form-card">
@@ -255,46 +290,92 @@ export class ScionPageGroveCreate extends LitElement {
                 <span>${this.error}</span>
               </div>
             `
-          : ''}
+          : nothing}
 
         <div>
           <div class="form-field">
-            <label for="git-url">Git Repository URL</label>
-            <sl-input
-              id="git-url"
-              placeholder="https://github.com/org/repo.git"
-              .value=${this.gitUrl}
-              @sl-input=${(e: Event) => this.onGitUrlInput(e)}
-              required
-            ></sl-input>
-            <div class="hint">HTTPS or SSH URL of the git repository.</div>
-          </div>
-
-          <div class="form-field">
-            <label for="name">Display Name</label>
-            <sl-input
-              id="name"
-              placeholder="Auto-derived from URL"
-              .value=${this.name}
-              @sl-input=${(e: Event) => this.onNameInput(e)}
-            ></sl-input>
+            <label for="mode">Workspace Type</label>
+            <sl-select
+              id="mode"
+              .value=${this.mode}
+              @sl-change=${(e: Event) => this.onModeChange(e)}
+            >
+              <sl-option value="hub">Hub Workspace</sl-option>
+              <sl-option value="git">Git Repository</sl-option>
+            </sl-select>
             <div class="hint">
-              Human-readable name for this grove. Auto-derived from the repository URL if left
-              empty.
+              ${this.mode === 'hub'
+                ? 'A workspace managed by the Hub. No git repository required.'
+                : 'Link to an existing git repository for source-controlled workspaces.'}
             </div>
           </div>
 
           <div class="form-field">
-            <label for="branch">Default Branch</label>
+            <label for="name">Name</label>
             <sl-input
-              id="branch"
-              placeholder="main"
-              .value=${this.branch}
-              @sl-input=${(e: Event) => {
-                this.branch = (e.target as HTMLElement & { value: string }).value;
-              }}
+              id="name"
+              placeholder="my-project"
+              .value=${this.name}
+              @sl-input=${(e: Event) => this.onNameInput(e)}
+              required
             ></sl-input>
-            <div class="hint">The default branch to use for this repository.</div>
+          </div>
+
+          <div class="form-field">
+            <label for="slug">Slug</label>
+            <sl-input
+              id="slug"
+              placeholder="my-project"
+              .value=${this.slug}
+              @sl-input=${(e: Event) => this.onSlugInput(e)}
+            ></sl-input>
+            <div class="hint">URL-safe identifier. Auto-derived from name if left unchanged.</div>
+          </div>
+
+          ${this.mode === 'git'
+            ? html`
+                <div class="form-field">
+                  <label for="gitRemote">Git Remote URL</label>
+                  <sl-input
+                    id="gitRemote"
+                    placeholder="https://github.com/org/repo.git"
+                    .value=${this.gitRemote}
+                    @sl-input=${(e: Event) => this.onGitRemoteInput(e)}
+                    required
+                  ></sl-input>
+                  <div class="hint">
+                    HTTPS or SSH URL of the git repository.
+                  </div>
+                </div>
+
+                <div class="form-field">
+                  <label for="branch">Default Branch</label>
+                  <sl-input
+                    id="branch"
+                    placeholder="main"
+                    .value=${this.branch}
+                    @sl-input=${(e: Event) => {
+                      this.branch = (e.target as HTMLElement & { value: string }).value;
+                    }}
+                  ></sl-input>
+                  <div class="hint">The default branch to use for this repository.</div>
+                </div>
+              `
+            : nothing}
+
+          <div class="form-field">
+            <label for="visibility">Visibility</label>
+            <sl-select
+              id="visibility"
+              .value=${this.visibility}
+              @sl-change=${(e: Event) => {
+                this.visibility = (e.target as HTMLElement & { value: string }).value;
+              }}
+            >
+              <sl-option value="private">Private</sl-option>
+              <sl-option value="team">Team</sl-option>
+              <sl-option value="public">Public</sl-option>
+            </sl-select>
           </div>
 
           <div class="form-actions">
@@ -308,7 +389,9 @@ export class ScionPageGroveCreate extends LitElement {
               Create Grove
             </sl-button>
             <a href="/groves" style="text-decoration: none;">
-              <sl-button variant="default" ?disabled=${this.submitting}> Cancel </sl-button>
+              <sl-button variant="default" ?disabled=${this.submitting}>
+                Cancel
+              </sl-button>
             </a>
           </div>
         </div>

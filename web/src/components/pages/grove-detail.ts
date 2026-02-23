@@ -521,7 +521,9 @@ export class ScionPageGroveDetail extends LitElement {
       <div class="header">
         <div class="header-info">
           <div class="header-title">
-            <sl-icon name="folder-fill"></sl-icon>
+            ${this.grove.gitRemote
+              ? html`<sl-icon name="diagram-3"></sl-icon>`
+              : html`<sl-icon name="folder-fill"></sl-icon>`}
             <h1>${this.grove.name}</h1>
             <scion-status-badge
               status=${this.getStatusVariant(this.grove.status)}
@@ -529,7 +531,7 @@ export class ScionPageGroveDetail extends LitElement {
               size="small"
             ></scion-status-badge>
           </div>
-          <div class="header-path">${this.grove.path}</div>
+          <div class="header-path">${this.grove.gitRemote || 'Hub Workspace'}</div>
         </div>
         <div class="header-actions">
           <a href="/agents/new?groveId=${this.groveId}" style="text-decoration: none;">

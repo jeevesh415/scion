@@ -391,10 +391,12 @@ export class ScionPageGroves extends LitElement {
         <div class="grove-header">
           <div>
             <h3 class="grove-name">
-              <sl-icon name="folder-fill"></sl-icon>
+              ${grove.gitRemote
+                ? html`<sl-tooltip content="Git-backed grove"><sl-icon name="diagram-3"></sl-icon></sl-tooltip>`
+                : html`<sl-tooltip content="Hub workspace"><sl-icon name="folder-fill"></sl-icon></sl-tooltip>`}
               ${grove.name}
             </h3>
-            <div class="grove-path">${grove.gitRemote || grove.path}</div>
+            <div class="grove-path">${grove.gitRemote || grove.path || 'Hub workspace'}</div>
           </div>
           <scion-status-badge
             status=${this.getStatusVariant(grove.status)}

@@ -20,11 +20,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/secret"
 	"github.com/ptone/scion-agent/pkg/storage"
 	"github.com/ptone/scion-agent/pkg/store"
@@ -1485,6 +1488,14 @@ func (s *Server) createGrove(w http.ResponseWriter, r *http.Request) {
 	// Create the associated grove_agents group (best-effort)
 	s.createGroveGroup(ctx, grove)
 
+	// Initialize filesystem workspace for hub-native groves (no git remote).
+	if grove.GitRemote == "" {
+		if err := s.initHubNativeGrove(grove); err != nil {
+			slog.Warn("failed to initialize hub-native grove workspace",
+				"grove", grove.ID, "slug", grove.Slug, "error", err)
+		}
+	}
+
 	s.events.PublishGroveCreated(ctx, grove)
 
 	writeJSON(w, http.StatusCreated, grove)
@@ -1505,6 +1516,50 @@ func (s *Server) createGroveGroup(ctx context.Context, grove *store.Grove) {
 	if err := s.store.CreateGroup(ctx, groveGroup); err != nil {
 		slog.Warn("failed to create grove group", "grove", grove.ID, "error", err)
 	}
+}
+
+// hubNativeGrovePath returns the filesystem path for a hub-native grove workspace.
+func hubNativeGrovePath(slug string) (string, error) {
+	globalDir, err := config.GetGlobalDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get global dir: %w", err)
+	}
+	return filepath.Join(globalDir, "groves", slug), nil
+}
+
+// initHubNativeGrove initializes the filesystem workspace for a hub-native grove.
+// It creates the workspace directory and seeds the .scion project structure with
+// hub connection settings.
+func (s *Server) initHubNativeGrove(grove *store.Grove) error {
+	workspacePath, err := hubNativeGrovePath(grove.Slug)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(workspacePath, 0755); err != nil {
+		return fmt.Errorf("failed to create grove workspace directory: %w", err)
+	}
+
+	scionDir := filepath.Join(workspacePath, ".scion")
+	if err := config.InitProject(scionDir, nil); err != nil {
+		return fmt.Errorf("failed to initialize .scion project: %w", err)
+	}
+
+	// Write hub connection settings into the seeded settings file.
+	settingsUpdates := map[string]string{
+		"hub.enabled":  "true",
+		"hub.endpoint": s.config.HubEndpoint,
+		"hub.groveId":  grove.ID,
+		"grove_id":     grove.ID,
+	}
+	for key, value := range settingsUpdates {
+		if err := config.UpdateSetting(scionDir, key, value, false); err != nil {
+			slog.Warn("failed to update hub-native grove setting",
+				"grove", grove.ID, "key", key, "error", err)
+		}
+	}
+
+	return nil
 }
 
 func (s *Server) handleGroveRegister(w http.ResponseWriter, r *http.Request) {
@@ -4408,6 +4463,14 @@ func (s *Server) populateAgentConfig(agent *store.Agent, grove *store.Grove, res
 			URL:    cloneURL,
 			Branch: defaultBranch,
 			Depth:  1,
+		}
+	}
+
+	// Populate workspace path for hub-native groves (no git remote).
+	if grove != nil && grove.GitRemote == "" {
+		workspacePath, err := hubNativeGrovePath(grove.Slug)
+		if err == nil {
+			agent.AppliedConfig.Workspace = workspacePath
 		}
 	}
 

@@ -59,6 +59,7 @@ import '../components/shared/debug-panel.js';
 // Page components
 import '../components/pages/home.js';
 import '../components/pages/groves.js';
+import '../components/pages/grove-create.js';
 import '../components/pages/grove-detail.js';
 import '../components/pages/agents.js';
 import '../components/pages/agent-detail.js';
