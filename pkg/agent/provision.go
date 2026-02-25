@@ -295,11 +295,14 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 
 	// 2b. Resolve harness-config name (full chain)
 	harnessConfigName := harnessConfig // CLI --harness-config flag (highest priority)
+	hcSource := "cli-flag"
 	if harnessConfigName == "" {
 		harnessConfigName = finalScionCfg.DefaultHarnessConfig // template's default_harness_config
+		hcSource = "template-default"
 	}
 	if harnessConfigName == "" {
 		harnessConfigName = finalScionCfg.HarnessConfig // template's harness_config
+		hcSource = "template-harness-config"
 	}
 	if harnessConfigName == "" && settings != nil {
 		// Profile's DefaultHarnessConfig
@@ -309,11 +312,14 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 		}
 		if p, ok := settings.Profiles[effectiveProfile]; ok && p.DefaultHarnessConfig != "" {
 			harnessConfigName = p.DefaultHarnessConfig
+			hcSource = fmt.Sprintf("profile-%s", effectiveProfile)
 		}
 	}
 	if harnessConfigName == "" && settings != nil {
 		harnessConfigName = settings.DefaultHarnessConfig // top-level settings
+		hcSource = "settings-default"
 	}
+	util.Debugf("ProvisionAgent: harness-config resolved: name=%q source=%s", harnessConfigName, hcSource)
 	if harnessConfigName == "" {
 		return "", "", nil, fmt.Errorf("no harness-config resolved. Specify --harness-config, set default_harness_config in the template, or set default_harness_config in settings")
 	}
@@ -327,6 +333,8 @@ func ProvisionAgent(ctx context.Context, agentName string, templateName string, 
 	if err != nil {
 		return "", "", nil, fmt.Errorf("failed to find harness-config %q: %w", harnessConfigName, err)
 	}
+	util.Debugf("ProvisionAgent: harness-config loaded from disk: path=%s harness=%q image=%q",
+		hcDir.Path, hcDir.Config.Harness, hcDir.Config.Image)
 	finalScionCfg.Harness = hcDir.Config.Harness
 	finalScionCfg.HarnessConfig = harnessConfigName
 
@@ -662,6 +670,10 @@ func GetAgent(ctx context.Context, agentName string, templateName string, agentI
 	if err != nil {
 		return "", "", "", nil, err
 	}
+
+	util.Debugf("GetAgent: agentName=%s templateName=%q harnessConfig=%q grovePath=%q projectDir=%s",
+		agentName, templateName, harnessConfig, grovePath, projectDir)
+
 	agentsDir := filepath.Join(projectDir, "agents")
 	agentDir := filepath.Join(agentsDir, agentName)
 	agentHome := filepath.Join(agentDir, "home")
@@ -689,9 +701,18 @@ func GetAgent(ctx context.Context, agentName string, templateName string, agentI
 		if templateName == "" {
 			templateName = defaultTemplate
 		}
+		util.Debugf("GetAgent: agent dir does not exist, provisioning with template=%q", templateName)
 		home, ws, cfg, err := ProvisionAgent(ctx, agentName, templateName, agentImage, harnessConfig, grovePath, profileName, optionalStatus, branch, workspace)
+		if err != nil {
+			util.Debugf("GetAgent: ProvisionAgent failed: %v", err)
+		} else {
+			util.Debugf("GetAgent: ProvisionAgent succeeded, harness=%q harnessConfig=%q image=%q",
+				cfg.Harness, cfg.HarnessConfig, cfg.Image)
+		}
 		return agentDir, home, ws, cfg, err
 	}
+
+	util.Debugf("GetAgent: agent dir exists, loading existing config from %s", agentDir)
 
 	// Try to load agent-info.json first to get the template
 	agentInfoPath := filepath.Join(agentHome, "agent-info.json")
@@ -716,6 +737,8 @@ func GetAgent(ctx context.Context, agentName string, templateName string, agentI
 
 	chain, err := config.GetTemplateChainInGrove(effectiveTemplate, grovePath)
 	if err != nil {
+		util.Debugf("GetAgent: template chain for %q not found: %v, returning agentCfg only (harness=%q image=%q)",
+			effectiveTemplate, err, agentCfg.Harness, agentCfg.Image)
 		return agentDir, agentHome, agentWorkspace, agentCfg, nil
 	}
 
@@ -730,11 +753,14 @@ func GetAgent(ctx context.Context, agentName string, templateName string, agentI
 	}
 
 	finalCfg := config.MergeScionConfig(mergedCfg, agentCfg)
-	
+
 	// Ensure Info is populated from agent-info.json if available
 	if agentInfo != nil {
 		finalCfg.Info = agentInfo
 	}
+
+	util.Debugf("GetAgent: existing agent config loaded, harness=%q harnessConfig=%q image=%q defaultHarnessConfig=%q",
+		finalCfg.Harness, finalCfg.HarnessConfig, finalCfg.Image, finalCfg.DefaultHarnessConfig)
 
 	return agentDir, agentHome, agentWorkspace, finalCfg, nil
 }

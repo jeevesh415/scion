@@ -584,6 +584,16 @@ func (d *HTTPAgentDispatcher) buildCreateRequest(ctx context.Context, agent *sto
 			GitClone:     agent.AppliedConfig.GitClone,
 		}
 		req.ResolvedEnv = agent.AppliedConfig.Env
+		if d.debug {
+			slog.Debug("buildCreateRequest: config sent to broker",
+				"template", agent.Template,
+				"image", agent.AppliedConfig.Image,
+				"harness", agent.AppliedConfig.Harness,
+				"profile", agent.AppliedConfig.Profile,
+				"templateID", agent.AppliedConfig.TemplateID,
+				"grovePath", req.GrovePath,
+			)
+		}
 	}
 
 	// Include template secrets declarations for broker env-gather

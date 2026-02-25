@@ -1344,6 +1344,18 @@ func (s *Server) finalizeEnv(w http.ResponseWriter, r *http.Request, id string) 
 		opts.Profile = origReq.Config.Profile
 	}
 
+	if s.config.Debug {
+		slog.Debug("Finalize-env: StartOptions built from pending request",
+			"name", opts.Name,
+			"grovePath", opts.GrovePath,
+			"template", opts.Template,
+			"image", opts.Image,
+			"profile", opts.Profile,
+			"harnessConfig", opts.HarnessConfig,
+			"hasConfig", origReq.Config != nil,
+		)
+	}
+
 	// Save template slug before hydration may replace opts.Template with a cache path
 	templateSlug := ""
 	if origReq.Config != nil {
