@@ -1871,6 +1871,20 @@ func runHubLink(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// If this host is a registered broker, add it as a provider for this grove
+	localBrokerID, localBrokerName := getLocalBrokerInfo(settings)
+	if localBrokerID != "" {
+		addReq := &hubclient.AddProviderRequest{
+			BrokerID:  localBrokerID,
+			LocalPath: resolvedPath,
+		}
+		if _, err := client.Groves().AddProvider(ctx, groveID, addReq); err != nil {
+			util.Debugf("Failed to add broker as provider during link: %v", err)
+		} else {
+			util.Debugf("Registered local broker %s as provider for grove %s", localBrokerName, groveID)
+		}
+	}
+
 	// Enable Hub integration for this grove
 	if err := config.UpdateSetting(resolvedPath, "hub.enabled", "true", isGlobal); err != nil {
 		return fmt.Errorf("failed to enable hub: %w", err)
