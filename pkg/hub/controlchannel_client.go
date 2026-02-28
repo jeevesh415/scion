@@ -207,6 +207,21 @@ func (c *ControlChannelBrokerClient) CreateAgentWithGather(ctx context.Context, 
 	return &result, nil, nil
 }
 
+// CleanupGrove asks a broker to remove its local hub-native grove directory via control channel.
+func (c *ControlChannelBrokerClient) CleanupGrove(ctx context.Context, brokerID, brokerEndpoint, groveSlug string) error {
+	_ = brokerEndpoint
+	path := fmt.Sprintf("/api/v1/groves/%s", url.PathEscape(groveSlug))
+	resp, err := c.doRequest(ctx, brokerID, "DELETE", path, "", nil)
+	if err != nil {
+		return err
+	}
+	// Allow 404 for idempotent cleanup
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	return nil
+}
+
 // FinalizeEnv sends gathered env vars to a broker to complete agent creation via control channel.
 func (c *ControlChannelBrokerClient) FinalizeEnv(ctx context.Context, brokerID, brokerEndpoint, agentID string, env map[string]string) (*RemoteAgentResponse, error) {
 	_ = brokerEndpoint
@@ -363,6 +378,14 @@ func (c *HybridBrokerClient) CreateAgentWithGather(ctx context.Context, brokerID
 		return c.controlChannel.CreateAgentWithGather(ctx, brokerID, brokerEndpoint, req)
 	}
 	return c.httpClient.CreateAgentWithGather(ctx, brokerID, brokerEndpoint, req)
+}
+
+// CleanupGrove asks a broker to remove its local hub-native grove directory, preferring control channel.
+func (c *HybridBrokerClient) CleanupGrove(ctx context.Context, brokerID, brokerEndpoint, groveSlug string) error {
+	if c.useControlChannel(brokerID) {
+		return c.controlChannel.CleanupGrove(ctx, brokerID, brokerEndpoint, groveSlug)
+	}
+	return c.httpClient.CleanupGrove(ctx, brokerID, brokerEndpoint, groveSlug)
 }
 
 // FinalizeEnv sends gathered env vars to a broker, preferring control channel.

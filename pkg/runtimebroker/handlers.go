@@ -1635,3 +1635,68 @@ func boolPtr(b bool) *bool {
 func agentInfoPtr(a AgentResponse) *AgentResponse {
 	return &a
 }
+
+// ============================================================================
+// Grove Endpoints
+// ============================================================================
+
+// handleGroveBySlug routes requests to /api/v1/groves/{slug}.
+func (s *Server) handleGroveBySlug(w http.ResponseWriter, r *http.Request) {
+	slug := extractID(r, "/api/v1/groves")
+	if slug == "" {
+		NotFound(w, "grove")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodDelete:
+		s.deleteGrove(w, r, slug)
+	default:
+		MethodNotAllowed(w)
+	}
+}
+
+// deleteGrove removes the local hub-native grove directory for the given slug.
+// Returns 204 on success (including when the directory doesn't exist).
+func (s *Server) deleteGrove(w http.ResponseWriter, r *http.Request, slug string) {
+	globalDir, err := config.GetGlobalDir()
+	if err != nil {
+		RuntimeError(w, "Failed to get global dir: "+err.Error())
+		return
+	}
+
+	grovePath := filepath.Join(globalDir, "groves", slug)
+
+	// Path traversal protection: ensure the resolved path stays inside the groves directory.
+	grovesBase := filepath.Join(globalDir, "groves")
+	absGrove, err := filepath.Abs(grovePath)
+	if err != nil {
+		RuntimeError(w, "Failed to resolve grove path: "+err.Error())
+		return
+	}
+	absBase, err := filepath.Abs(grovesBase)
+	if err != nil {
+		RuntimeError(w, "Failed to resolve groves base path: "+err.Error())
+		return
+	}
+	if !strings.HasPrefix(absGrove, absBase+string(filepath.Separator)) {
+		slog.Warn("grove cleanup path traversal blocked", "slug", slug, "resolved", absGrove)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	if _, err := os.Stat(grovePath); os.IsNotExist(err) {
+		// Already gone — idempotent success
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if err := os.RemoveAll(grovePath); err != nil {
+		slog.Warn("failed to remove grove directory", "slug", slug, "path", grovePath, "error", err)
+		RuntimeError(w, "Failed to remove grove directory: "+err.Error())
+		return
+	}
+
+	slog.Info("Removed hub-native grove directory", "slug", slug, "path", grovePath)
+	w.WriteHeader(http.StatusNoContent)
+}

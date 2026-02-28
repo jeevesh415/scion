@@ -492,6 +492,174 @@ func TestAutoLinkProviders_GitGrove_NoLocalPath(t *testing.T) {
 		"LocalPath should NOT be set for git-backed grove providers")
 }
 
+// TestDeleteGrove_HubNative_DispatchesCleanupToBrokers verifies that deleting a
+// hub-native grove dispatches CleanupGrove to each provider broker (except the
+// embedded/co-located broker).
+func TestDeleteGrove_HubNative_DispatchesCleanupToBrokers(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	// Create a hub-native grove
+	grove := &store.Grove{
+		ID:   "grove-cleanup-dispatch",
+		Slug: "cleanup-dispatch",
+		Name: "Cleanup Dispatch Grove",
+		// No GitRemote — hub-native
+	}
+	require.NoError(t, s.CreateGrove(ctx, grove))
+
+	// Create two brokers
+	broker1 := &store.RuntimeBroker{
+		ID:       "broker-cleanup-1",
+		Slug:     "cleanup-broker-1",
+		Name:     "Cleanup Broker 1",
+		Status:   store.BrokerStatusOnline,
+		Endpoint: "http://broker1:9800",
+	}
+	broker2 := &store.RuntimeBroker{
+		ID:       "broker-cleanup-2",
+		Slug:     "cleanup-broker-2",
+		Name:     "Cleanup Broker 2",
+		Status:   store.BrokerStatusOnline,
+		Endpoint: "http://broker2:9800",
+	}
+	require.NoError(t, s.CreateRuntimeBroker(ctx, broker1))
+	require.NoError(t, s.CreateRuntimeBroker(ctx, broker2))
+
+	// Link both as providers
+	require.NoError(t, s.AddGroveProvider(ctx, &store.GroveProvider{
+		GroveID:  grove.ID,
+		BrokerID: broker1.ID,
+		LinkedBy: "test",
+	}))
+	require.NoError(t, s.AddGroveProvider(ctx, &store.GroveProvider{
+		GroveID:  grove.ID,
+		BrokerID: broker2.ID,
+		LinkedBy: "test",
+	}))
+
+	// Set up a mock client and dispatcher
+	mockClient := &mockRuntimeBrokerClient{}
+	disp := NewHTTPAgentDispatcherWithClient(s, mockClient, false)
+	srv.SetDispatcher(disp)
+
+	// Delete grove
+	rec := doRequest(t, srv, http.MethodDelete, "/api/v1/groves/"+grove.ID, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Verify CleanupGrove was called for both brokers
+	assert.Equal(t, 2, mockClient.cleanupCalls, "CleanupGrove should be called for each provider broker")
+	assert.Contains(t, mockClient.cleanupSlugs, "cleanup-dispatch")
+
+	// Verify grove deleted from database
+	_, err := s.GetGrove(ctx, grove.ID)
+	assert.ErrorIs(t, err, store.ErrNotFound)
+}
+
+// TestDeleteGrove_HubNative_SkipsEmbeddedBroker verifies that the embedded broker
+// (co-located hub+broker) is not called for cleanup since the hub handles its own copy.
+func TestDeleteGrove_HubNative_SkipsEmbeddedBroker(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	// Create a hub-native grove
+	grove := &store.Grove{
+		ID:   "grove-cleanup-embedded",
+		Slug: "cleanup-embedded",
+		Name: "Cleanup Embedded Grove",
+	}
+	require.NoError(t, s.CreateGrove(ctx, grove))
+
+	// Create embedded and remote brokers
+	embeddedBroker := &store.RuntimeBroker{
+		ID:       "broker-embedded",
+		Slug:     "embedded-broker",
+		Name:     "Embedded Broker",
+		Status:   store.BrokerStatusOnline,
+		Endpoint: "http://localhost:9800",
+	}
+	remoteBroker := &store.RuntimeBroker{
+		ID:       "broker-remote",
+		Slug:     "remote-broker",
+		Name:     "Remote Broker",
+		Status:   store.BrokerStatusOnline,
+		Endpoint: "http://remote:9800",
+	}
+	require.NoError(t, s.CreateRuntimeBroker(ctx, embeddedBroker))
+	require.NoError(t, s.CreateRuntimeBroker(ctx, remoteBroker))
+
+	// Link both as providers
+	require.NoError(t, s.AddGroveProvider(ctx, &store.GroveProvider{
+		GroveID:  grove.ID,
+		BrokerID: embeddedBroker.ID,
+		LinkedBy: "test",
+	}))
+	require.NoError(t, s.AddGroveProvider(ctx, &store.GroveProvider{
+		GroveID:  grove.ID,
+		BrokerID: remoteBroker.ID,
+		LinkedBy: "test",
+	}))
+
+	// Mark embedded broker
+	srv.SetEmbeddedBrokerID(embeddedBroker.ID)
+
+	// Set up mock client and dispatcher
+	mockClient := &mockRuntimeBrokerClient{}
+	disp := NewHTTPAgentDispatcherWithClient(s, mockClient, false)
+	srv.SetDispatcher(disp)
+
+	// Delete grove
+	rec := doRequest(t, srv, http.MethodDelete, "/api/v1/groves/"+grove.ID, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Only the remote broker should receive CleanupGrove, not the embedded one
+	assert.Equal(t, 1, mockClient.cleanupCalls, "CleanupGrove should only be called for non-embedded brokers")
+	assert.Contains(t, mockClient.cleanupSlugs, "cleanup-embedded")
+}
+
+// TestDeleteGrove_GitBacked_NoCleanupDispatched verifies that deleting a git-backed
+// grove does NOT trigger broker cleanup (those directories are externally managed).
+func TestDeleteGrove_GitBacked_NoCleanupDispatched(t *testing.T) {
+	srv, s := testServer(t)
+	ctx := context.Background()
+
+	// Create a git-backed grove
+	grove := &store.Grove{
+		ID:        "grove-git-nocleanup",
+		Slug:      "git-nocleanup",
+		Name:      "Git No Cleanup Grove",
+		GitRemote: "github.com/test/nocleanup",
+	}
+	require.NoError(t, s.CreateGrove(ctx, grove))
+
+	// Create a broker and link as provider
+	broker := &store.RuntimeBroker{
+		ID:       "broker-git-nocleanup",
+		Slug:     "git-nocleanup-broker",
+		Name:     "Git NoCleanup Broker",
+		Status:   store.BrokerStatusOnline,
+		Endpoint: "http://broker:9800",
+	}
+	require.NoError(t, s.CreateRuntimeBroker(ctx, broker))
+	require.NoError(t, s.AddGroveProvider(ctx, &store.GroveProvider{
+		GroveID:  grove.ID,
+		BrokerID: broker.ID,
+		LinkedBy: "test",
+	}))
+
+	// Set up mock client and dispatcher
+	mockClient := &mockRuntimeBrokerClient{}
+	disp := NewHTTPAgentDispatcherWithClient(s, mockClient, false)
+	srv.SetDispatcher(disp)
+
+	// Delete grove
+	rec := doRequest(t, srv, http.MethodDelete, "/api/v1/groves/"+grove.ID, nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// CleanupGrove should NOT be called for git-backed groves
+	assert.Equal(t, 0, mockClient.cleanupCalls, "CleanupGrove should not be called for git-backed groves")
+}
+
 // TestResolveRuntimeBroker_HubNativeGrove_NoLocalPath verifies that when a broker
 // is auto-linked during agent creation for a hub-native grove, LocalPath is NOT
 // set. Remote brokers resolve the path themselves via groveSlug.

@@ -980,6 +980,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/agents", s.handleAgents)
 	s.mux.HandleFunc("/api/v1/agents/", s.handleAgentByID)
 
+	// Grove routes
+	s.mux.HandleFunc("/api/v1/groves/", s.handleGroveBySlug)
+
 	// Workspace sync routes (for Hub-initiated sync via control channel)
 	s.mux.HandleFunc("/api/v1/workspace/upload", s.handleWorkspaceUpload)
 	s.mux.HandleFunc("/api/v1/workspace/apply", s.handleWorkspaceApply)

@@ -338,6 +338,24 @@ func (c *AuthenticatedBrokerClient) CreateAgentWithGather(ctx context.Context, b
 	return &result, nil, nil
 }
 
+// CleanupGrove asks a broker to remove its local hub-native grove directory with HMAC authentication.
+func (c *AuthenticatedBrokerClient) CleanupGrove(ctx context.Context, brokerID, brokerEndpoint, groveSlug string) error {
+	endpoint := fmt.Sprintf("%s/api/v1/groves/%s", strings.TrimSuffix(brokerEndpoint, "/"), url.PathEscape(groveSlug))
+
+	resp, err := c.doRequest(ctx, brokerID, http.MethodDelete, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("runtime broker returned error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
 // FinalizeEnv sends gathered env vars to a broker to complete agent creation.
 func (c *AuthenticatedBrokerClient) FinalizeEnv(ctx context.Context, brokerID, brokerEndpoint, agentID string, env map[string]string) (*RemoteAgentResponse, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/agents/%s/finalize-env", strings.TrimSuffix(brokerEndpoint, "/"), url.PathEscape(agentID))

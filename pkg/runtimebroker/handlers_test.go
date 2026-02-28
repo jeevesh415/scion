@@ -1932,3 +1932,80 @@ func TestCreateAgentGroveSlugInitializesScionDir(t *testing.T) {
 		t.Errorf("after init: expected ResolveGrovePath to resolve to %q, got %q", scionDir, resolved)
 	}
 }
+
+// ============================================================================
+// Grove Cleanup Endpoint Tests
+// ============================================================================
+
+func TestDeleteGrove_RemovesDirectory(t *testing.T) {
+	srv := newTestServer()
+
+	// Create a temporary groves directory structure
+	tmpHome := t.TempDir()
+	grovesDir := filepath.Join(tmpHome, ".scion", "groves")
+	groveDir := filepath.Join(grovesDir, "test-grove")
+	scionDir := filepath.Join(groveDir, ".scion")
+
+	if err := os.MkdirAll(scionDir, 0o755); err != nil {
+		t.Fatalf("failed to create test grove dir: %v", err)
+	}
+
+	// Write a dummy file so we can verify deletion
+	dummyFile := filepath.Join(scionDir, "settings.yaml")
+	if err := os.WriteFile(dummyFile, []byte("test: true"), 0o644); err != nil {
+		t.Fatalf("failed to write dummy file: %v", err)
+	}
+
+	// Override HOME so config.GetGlobalDir resolves to our temp dir
+	t.Setenv("HOME", tmpHome)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/groves/test-grove", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify directory was removed
+	if _, err := os.Stat(groveDir); !os.IsNotExist(err) {
+		t.Errorf("expected grove directory to be removed, but it still exists")
+	}
+}
+
+func TestDeleteGrove_NonExistent_Returns204(t *testing.T) {
+	srv := newTestServer()
+
+	tmpHome := t.TempDir()
+	// Create the groves parent but NOT the specific grove directory
+	grovesDir := filepath.Join(tmpHome, ".scion", "groves")
+	if err := os.MkdirAll(grovesDir, 0o755); err != nil {
+		t.Fatalf("failed to create groves dir: %v", err)
+	}
+
+	t.Setenv("HOME", tmpHome)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/groves/nonexistent-grove", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("expected 204 for non-existent grove, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteGrove_PathTraversal_Blocked(t *testing.T) {
+	srv := newTestServer()
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	// Attempt path traversal
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/groves/..%2F..%2Fetc", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for path traversal attempt, got %d: %s", rec.Code, rec.Body.String())
+	}
+}

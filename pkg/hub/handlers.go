@@ -2962,6 +2962,13 @@ func (s *Server) deleteGrove(w http.ResponseWriter, r *http.Request, id string) 
 		}
 	}
 
+	// For hub-native groves, notify provider brokers to clean up their
+	// local grove directories. This must run before DeleteGrove because
+	// the cascade deletes the grove_providers we need to enumerate.
+	if grove.GitRemote == "" {
+		s.cleanupBrokerGroveDirectories(ctx, grove)
+	}
+
 	if err := s.store.DeleteGrove(ctx, id); err != nil {
 		writeErrorFromErr(w, err, "")
 		return
@@ -3006,6 +3013,63 @@ func (s *Server) deleteGroveAgents(ctx context.Context, grove *store.Grove) {
 			}
 		}
 		s.events.PublishAgentDeleted(ctx, agent.ID, agent.GroveID)
+	}
+}
+
+// cleanupBrokerGroveDirectories notifies provider brokers to remove their local
+// copies of a hub-native grove directory. This is best-effort: failures are
+// logged but do not block grove deletion. The embedded broker is skipped
+// because the hub already cleans up its own filesystem copy.
+func (s *Server) cleanupBrokerGroveDirectories(ctx context.Context, grove *store.Grove) {
+	if grove.Slug == "" {
+		return
+	}
+
+	providers, err := s.store.GetGroveProviders(ctx, grove.ID)
+	if err != nil {
+		slog.Warn("failed to get grove providers for cleanup", "grove", grove.ID, "error", err)
+		return
+	}
+
+	if len(providers) == 0 {
+		return
+	}
+
+	// Get the RuntimeBrokerClient from the dispatcher.
+	var client RuntimeBrokerClient
+	if disp := s.GetDispatcher(); disp != nil {
+		if httpDisp, ok := disp.(*HTTPAgentDispatcher); ok {
+			client = httpDisp.GetClient()
+		}
+	}
+	if client == nil {
+		slog.Warn("no RuntimeBrokerClient available for grove cleanup dispatch", "grove", grove.ID)
+		return
+	}
+
+	for _, provider := range providers {
+		// Skip the embedded broker — the hub already cleans up its own copy.
+		if s.isEmbeddedBroker(provider.BrokerID) {
+			continue
+		}
+
+		broker, err := s.store.GetRuntimeBroker(ctx, provider.BrokerID)
+		if err != nil {
+			slog.Warn("failed to get broker for grove cleanup",
+				"grove", grove.ID, "broker", provider.BrokerID, "error", err)
+			continue
+		}
+
+		endpoint := broker.Endpoint
+		if endpoint == "" {
+			continue
+		}
+
+		if err := client.CleanupGrove(ctx, provider.BrokerID, endpoint, grove.Slug); err != nil {
+			slog.Warn("failed to cleanup grove on broker",
+				"grove", grove.ID, "slug", grove.Slug,
+				"broker", provider.BrokerID, "endpoint", endpoint, "error", err)
+		}
 	}
 }
 

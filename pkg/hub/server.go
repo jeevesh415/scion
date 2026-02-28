@@ -207,6 +207,11 @@ type RuntimeBrokerClient interface {
 	// CreateAgentWithGather creates an agent and handles 202 env-gather responses.
 	// Returns (response, nil, nil) on success, (nil, envReqs, nil) on 202, or (nil, nil, err) on error.
 	CreateAgentWithGather(ctx context.Context, brokerID, brokerEndpoint string, req *RemoteCreateAgentRequest) (*RemoteAgentResponse, *RemoteEnvRequirementsResponse, error)
+
+	// CleanupGrove asks a broker to remove its local hub-native grove directory.
+	// brokerID is used for HMAC authentication lookup.
+	// 404 responses are tolerated for idempotency.
+	CleanupGrove(ctx context.Context, brokerID, brokerEndpoint, groveSlug string) error
 }
 
 // RemoteCreateAgentRequest is the request body for creating an agent on a remote runtime broker.

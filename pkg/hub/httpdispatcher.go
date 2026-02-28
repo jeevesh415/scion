@@ -420,6 +420,40 @@ func (c *HTTPRuntimeBrokerClient) FinalizeEnv(ctx context.Context, brokerID, bro
 	return &result, nil
 }
 
+// CleanupGrove asks a broker to remove its local hub-native grove directory.
+// Note: brokerID is unused in this unauthenticated client.
+func (c *HTTPRuntimeBrokerClient) CleanupGrove(ctx context.Context, brokerID, brokerEndpoint, groveSlug string) error {
+	_ = brokerID // Unused in unauthenticated client
+	endpoint := fmt.Sprintf("%s/api/v1/groves/%s", strings.TrimSuffix(brokerEndpoint, "/"), url.PathEscape(groveSlug))
+
+	if c.debug {
+		slog.Debug("Dispatcher request", "method", "DELETE", "endpoint", endpoint)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("runtime broker returned error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
+// GetClient returns the underlying RuntimeBrokerClient.
+func (d *HTTPAgentDispatcher) GetClient() RuntimeBrokerClient {
+	return d.client
+}
+
 // AgentTokenGenerator generates JWT tokens for agents.
 type AgentTokenGenerator interface {
 	GenerateAgentToken(agentID, groveID string, additionalScopes ...AgentTokenScope) (string, error)

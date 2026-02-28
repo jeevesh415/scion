@@ -50,6 +50,7 @@ type mockRuntimeBrokerClient struct {
 	restartCalled   bool
 	deleteCalled    bool
 	messageCalled   bool
+	cleanupCalled   bool
 	lastBrokerID    string
 	lastEndpoint    string
 	lastAgentID     string
@@ -62,7 +63,10 @@ type mockRuntimeBrokerClient struct {
 	lastCreateReq   *RemoteCreateAgentRequest
 	lastDeleteOpts  struct{ deleteFiles, removeBranch bool }
 	returnErr       error
+	cleanupErr      error
 	startReturnResp *RemoteAgentResponse // custom start response if set
+	cleanupCalls    int
+	cleanupSlugs    []string
 }
 
 func (m *mockRuntimeBrokerClient) CreateAgent(ctx context.Context, brokerID, brokerEndpoint string, req *RemoteCreateAgentRequest) (*RemoteAgentResponse, error) {
@@ -155,6 +159,15 @@ func (m *mockRuntimeBrokerClient) FinalizeEnv(ctx context.Context, brokerID, bro
 	return &RemoteAgentResponse{
 		Agent: &RemoteAgentInfo{ID: agentID, Name: agentID, Status: "running"},
 	}, m.returnErr
+}
+
+func (m *mockRuntimeBrokerClient) CleanupGrove(ctx context.Context, brokerID, brokerEndpoint, groveSlug string) error {
+	m.cleanupCalled = true
+	m.cleanupCalls++
+	m.lastBrokerID = brokerID
+	m.lastEndpoint = brokerEndpoint
+	m.cleanupSlugs = append(m.cleanupSlugs, groveSlug)
+	return m.cleanupErr
 }
 
 func (m *mockRuntimeBrokerClient) CreateAgentWithGather(ctx context.Context, brokerID, brokerEndpoint string, req *RemoteCreateAgentRequest) (*RemoteAgentResponse, *RemoteEnvRequirementsResponse, error) {

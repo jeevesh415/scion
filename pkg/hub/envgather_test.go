@@ -123,7 +123,7 @@ func TestEnvGather_HubDispatch_AllSatisfied(t *testing.T) {
 		GroveID:         "grove-1",
 		RuntimeBrokerID: "broker-1",
 		AppliedConfig: &store.AgentAppliedConfig{
-			Harness: "claude",
+			HarnessConfig: "claude",
 		},
 	}
 
@@ -180,7 +180,7 @@ func TestEnvGather_HubDispatch_NeedsGather(t *testing.T) {
 		GroveID:         "grove-1",
 		RuntimeBrokerID: "broker-2",
 		AppliedConfig: &store.AgentAppliedConfig{
-			Harness: "claude",
+			HarnessConfig: "claude",
 		},
 	}
 
@@ -434,7 +434,7 @@ func TestEnvGather_HubHandler_SubmitEnv(t *testing.T) {
 		RuntimeBrokerID: "broker-submit",
 		Status:          store.AgentStatusProvisioning,
 		AppliedConfig: &store.AgentAppliedConfig{
-			Harness: "claude",
+			HarnessConfig: "claude",
 		},
 	}
 	if err := st.CreateAgent(ctx, agent); err != nil {
@@ -556,7 +556,7 @@ func TestEnvGather_HubEnvResolution(t *testing.T) {
 		GroveID:         "grove-env",
 		RuntimeBrokerID: "broker-env",
 		AppliedConfig: &store.AgentAppliedConfig{
-			Harness: "claude",
+			HarnessConfig: "claude",
 		},
 	}
 
@@ -612,7 +612,7 @@ func TestEnvGather_HubHandler_RetryAfterCancel_GlobalRoute(t *testing.T) {
 		RuntimeBrokerID: "broker-retry-global",
 		Status:          store.AgentStatusProvisioning,
 		AppliedConfig: &store.AgentAppliedConfig{
-			Harness: "claude",
+			HarnessConfig: "claude",
 		},
 	}
 	if err := st.CreateAgent(ctx, staleAgent); err != nil {
@@ -1173,7 +1173,7 @@ func TestEnvGather_HubHandler_RetryAfterCancel_GroveRoute(t *testing.T) {
 		RuntimeBrokerID: "broker-retry-route",
 		Status:          store.AgentStatusProvisioning,
 		AppliedConfig: &store.AgentAppliedConfig{
-			Harness: "claude",
+			HarnessConfig: "claude",
 		},
 	}
 	if err := st.CreateAgent(ctx, staleAgent); err != nil {
