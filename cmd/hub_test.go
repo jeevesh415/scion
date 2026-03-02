@@ -36,6 +36,13 @@ func TestGetAuthInfo_NoAuth(t *testing.T) {
 }
 
 func TestGetAuthInfo_DeprecatedTokenIgnored(t *testing.T) {
+	// Clear higher-priority token sources
+	t.Setenv("SCION_AUTH_TOKEN", "")
+	t.Setenv("SCION_DEV_TOKEN", "")
+	t.Setenv("SCION_DEV_TOKEN_FILE", "")
+	t.Setenv("SCION_HUB_TOKEN", "")
+	t.Setenv("HOME", t.TempDir())
+
 	// hub.token is deprecated and should no longer be used for auth
 	settings := &config.Settings{
 		Hub: &config.HubClientConfig{
@@ -48,6 +55,13 @@ func TestGetAuthInfo_DeprecatedTokenIgnored(t *testing.T) {
 }
 
 func TestGetAuthInfo_DeprecatedAPIKeyIgnored(t *testing.T) {
+	// Clear higher-priority token sources
+	t.Setenv("SCION_AUTH_TOKEN", "")
+	t.Setenv("SCION_DEV_TOKEN", "")
+	t.Setenv("SCION_DEV_TOKEN_FILE", "")
+	t.Setenv("SCION_HUB_TOKEN", "")
+	t.Setenv("HOME", t.TempDir())
+
 	// hub.apiKey is deprecated and should no longer be used for auth
 	settings := &config.Settings{
 		Hub: &config.HubClientConfig{
@@ -60,6 +74,12 @@ func TestGetAuthInfo_DeprecatedAPIKeyIgnored(t *testing.T) {
 }
 
 func TestGetAuthInfo_EnvTokenTakesPriority(t *testing.T) {
+	// Clear higher-priority token sources so SCION_HUB_TOKEN is reached
+	t.Setenv("SCION_AUTH_TOKEN", "")
+	t.Setenv("SCION_DEV_TOKEN", "")
+	t.Setenv("SCION_DEV_TOKEN_FILE", "")
+	t.Setenv("HOME", t.TempDir())
+
 	// SCION_HUB_TOKEN env var should work for bearer auth
 	settings := &config.Settings{}
 	t.Setenv("SCION_HUB_TOKEN", "env-token")
