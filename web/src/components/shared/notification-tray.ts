@@ -28,6 +28,7 @@ import { apiFetch } from '../../client/api.js';
 import type { User, Notification } from '../../shared/types.js';
 
 const POLL_INTERVAL_MS = 30_000;
+const PUSH_STORAGE_KEY = 'scion-push-notifications';
 
 @customElement('scion-notification-tray')
 export class ScionNotificationTray extends LitElement {
@@ -39,6 +40,12 @@ export class ScionNotificationTray extends LitElement {
 
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private boundOnClickOutside = this.onClickOutside.bind(this);
+
+  /** IDs already seen — used to detect genuinely new notifications. */
+  private seenIds = new Set<string>();
+
+  /** Suppresses browser push for the initial fetch so existing notifications don't fire. */
+  private initialFetchDone = false;
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -106,9 +113,59 @@ export class ScionNotificationTray extends LitElement {
       const res = await apiFetch('/api/v1/notifications?acknowledged=false');
       if (!res.ok) return;
       const data = (await res.json()) as Notification[] | null;
-      this.notifications = data ?? [];
+      const incoming = data ?? [];
+
+      // Detect new notifications (IDs not previously seen) and dispatch
+      // browser push for them — but only after the first fetch so we don't
+      // blast existing unacknowledged notifications on page load.
+      if (this.initialFetchDone) {
+        for (const n of incoming) {
+          if (!this.seenIds.has(n.id)) {
+            this.dispatchBrowserNotification(n);
+          }
+        }
+      }
+
+      // Update seen set to current snapshot
+      this.seenIds = new Set(incoming.map((n) => n.id));
+      this.initialFetchDone = true;
+      this.notifications = incoming;
     } catch {
       // Silently ignore network errors during polling
+    }
+  }
+
+  /**
+   * Fires a browser Notification if the user has opted in via profile settings
+   * and the browser has granted permission.
+   */
+  private dispatchBrowserNotification(n: Notification): void {
+    if (
+      !('Notification' in window) ||
+      window.Notification.permission !== 'granted' ||
+      localStorage.getItem(PUSH_STORAGE_KEY) !== 'true'
+    ) {
+      return;
+    }
+
+    const title = this.browserNotificationTitle(n.status);
+    new window.Notification(title, {
+      body: n.message,
+      tag: n.id, // deduplicate if the same notification is seen again
+      icon: '/shoelace/icons/bell.svg',
+    });
+  }
+
+  private browserNotificationTitle(status: string): string {
+    switch (status) {
+      case 'COMPLETED':
+        return 'Agent Completed';
+      case 'WAITING_FOR_INPUT':
+        return 'Agent Needs Input';
+      case 'LIMITS_EXCEEDED':
+        return 'Agent Limits Exceeded';
+      default:
+        return 'Scion Notification';
     }
   }
 
