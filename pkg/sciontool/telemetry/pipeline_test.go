@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricpb "go.opentelemetry.io/proto/otlp/metrics/v1"
 )
 
@@ -222,5 +223,75 @@ func TestPipeline_MetricHandlerRegistered(t *testing.T) {
 	}
 	if pipeline.receiver.metricHandler == nil {
 		t.Error("Expected metric handler to be registered on receiver")
+	}
+}
+
+func TestPipeline_HandleLogs_NilExporter(t *testing.T) {
+	cfg := &Config{
+		Enabled:  true,
+		GRPCPort: 54329,
+		HTTPPort: 54330,
+	}
+	pipeline := NewWithConfig(cfg)
+	if pipeline == nil {
+		t.Fatal("Expected non-nil pipeline")
+	}
+
+	// handleLogs with nil exporter should not error
+	err := pipeline.handleLogs(context.Background(), []*logspb.ResourceLogs{
+		{ScopeLogs: []*logspb.ScopeLogs{{LogRecords: []*logspb.LogRecord{{}}}}},
+	})
+	if err != nil {
+		t.Errorf("handleLogs should not return error without exporter, got: %v", err)
+	}
+}
+
+func TestPipeline_HandleLogs_Empty(t *testing.T) {
+	cfg := &Config{
+		Enabled:  true,
+		GRPCPort: 54331,
+		HTTPPort: 54332,
+	}
+	pipeline := NewWithConfig(cfg)
+	if pipeline == nil {
+		t.Fatal("Expected non-nil pipeline")
+	}
+
+	// Empty logs should return nil
+	err := pipeline.handleLogs(context.Background(), nil)
+	if err != nil {
+		t.Errorf("handleLogs with empty input should return nil, got: %v", err)
+	}
+}
+
+func TestPipeline_LogHandlerRegistered(t *testing.T) {
+	clearTelemetryEnv()
+	os.Setenv(EnvEnabled, "true")
+	os.Setenv(EnvCloudEnabled, "false")
+	os.Setenv(EnvGRPCPort, "54333")
+	os.Setenv(EnvHTTPPort, "54334")
+	defer clearTelemetryEnv()
+
+	pipeline := New()
+	if pipeline == nil {
+		t.Fatal("Expected non-nil pipeline")
+	}
+
+	ctx := context.Background()
+	if err := pipeline.Start(ctx); err != nil {
+		t.Fatalf("Failed to start pipeline: %v", err)
+	}
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		pipeline.Stop(stopCtx)
+		cancel()
+	}()
+
+	// Verify the receiver has a log handler registered
+	if pipeline.receiver == nil {
+		t.Fatal("Expected receiver to be created")
+	}
+	if pipeline.receiver.logHandler == nil {
+		t.Error("Expected log handler to be registered on receiver")
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/ptone/scion-agent/pkg/sciontool/log"
+	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricpb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
@@ -76,7 +77,7 @@ func (p *Pipeline) Start(ctx context.Context) error {
 	}
 
 	// Create receiver with span and metric handlers
-	p.receiver = NewReceiver(p.config, p.handleSpans, WithMetricHandler(p.handleMetrics))
+	p.receiver = NewReceiver(p.config, p.handleSpans, WithMetricHandler(p.handleMetrics), WithLogHandler(p.handleLogs))
 
 	// Start receiver
 	if err := p.receiver.Start(ctx); err != nil {
@@ -237,6 +238,32 @@ func (p *Pipeline) handleMetrics(ctx context.Context, resourceMetrics []*metricp
 			return err
 		}
 		log.Debug("Exported %d metrics to cloud", dpCount)
+	}
+
+	return nil
+}
+
+// handleLogs processes incoming logs from the receiver.
+func (p *Pipeline) handleLogs(ctx context.Context, resourceLogs []*logspb.ResourceLogs) error {
+	if len(resourceLogs) == 0 {
+		return nil
+	}
+
+	// Count total log records for logging
+	logCount := 0
+	for _, rl := range resourceLogs {
+		for _, sl := range rl.ScopeLogs {
+			logCount += len(sl.LogRecords)
+		}
+	}
+
+	// Forward to cloud exporter if available
+	if p.exporter != nil {
+		if err := p.exporter.ExportProtoLogs(ctx, resourceLogs); err != nil {
+			log.Error("Failed to export logs to cloud: %v", err)
+			return err
+		}
+		log.Debug("Exported %d log records to cloud", logCount)
 	}
 
 	return nil

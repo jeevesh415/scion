@@ -12,8 +12,10 @@ import (
 	"net/http"
 	"sync"
 
+	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricpb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/grpc"
@@ -26,6 +28,9 @@ type SpanHandler func(ctx context.Context, spans []*tracepb.ResourceSpans) error
 // MetricHandler is called when metrics are received.
 type MetricHandler func(ctx context.Context, metrics []*metricpb.ResourceMetrics) error
 
+// LogHandler is called when logs are received.
+type LogHandler func(ctx context.Context, logs []*logspb.ResourceLogs) error
+
 // Receiver accepts OTLP trace and metric data via gRPC and HTTP.
 type Receiver struct {
 	config        *Config
@@ -33,6 +38,7 @@ type Receiver struct {
 	httpServer    *http.Server
 	handler       SpanHandler
 	metricHandler MetricHandler
+	logHandler    LogHandler
 	mu            sync.Mutex
 	running       bool
 }
@@ -59,6 +65,13 @@ func WithMetricHandler(h MetricHandler) ReceiverOption {
 	}
 }
 
+// WithLogHandler sets the handler for received logs.
+func WithLogHandler(h LogHandler) ReceiverOption {
+	return func(r *Receiver) {
+		r.logHandler = h
+	}
+}
+
 // Start starts the OTLP gRPC and HTTP receivers.
 func (r *Receiver) Start(ctx context.Context) error {
 	r.mu.Lock()
@@ -78,6 +91,7 @@ func (r *Receiver) Start(ctx context.Context) error {
 	r.grpcServer = grpc.NewServer()
 	coltracepb.RegisterTraceServiceServer(r.grpcServer, &traceServiceServer{handler: r.handler})
 	colmetricpb.RegisterMetricsServiceServer(r.grpcServer, &metricsServiceServer{handler: r.metricHandler})
+	collogspb.RegisterLogsServiceServer(r.grpcServer, &logsServiceServer{handler: r.logHandler})
 
 	go func() {
 		if err := r.grpcServer.Serve(grpcLis); err != nil && err != grpc.ErrServerStopped {
@@ -96,6 +110,7 @@ func (r *Receiver) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/traces", r.handleHTTPTraces)
 	mux.HandleFunc("/v1/metrics", r.handleHTTPMetrics)
+	mux.HandleFunc("/v1/logs", r.handleHTTPLogs)
 
 	r.httpServer = &http.Server{
 		Handler: mux,
@@ -248,4 +263,53 @@ func (s *metricsServiceServer) Export(ctx context.Context, req *colmetricpb.Expo
 		}
 	}
 	return &colmetricpb.ExportMetricsServiceResponse{}, nil
+}
+
+// handleHTTPLogs handles OTLP HTTP log requests.
+func (r *Receiver) handleHTTPLogs(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+
+	var exportReq collogspb.ExportLogsServiceRequest
+	if err := proto.Unmarshal(body, &exportReq); err != nil {
+		http.Error(w, "Failed to parse OTLP request", http.StatusBadRequest)
+		return
+	}
+
+	if r.logHandler != nil {
+		if err := r.logHandler(req.Context(), exportReq.ResourceLogs); err != nil {
+			http.Error(w, "Failed to process logs", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	resp := &collogspb.ExportLogsServiceResponse{}
+	respBytes, _ := proto.Marshal(resp)
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	w.WriteHeader(http.StatusOK)
+	w.Write(respBytes)
+}
+
+// logsServiceServer implements the OTLP gRPC logs service.
+type logsServiceServer struct {
+	collogspb.UnimplementedLogsServiceServer
+	handler LogHandler
+}
+
+// Export implements the OTLP log export RPC.
+func (s *logsServiceServer) Export(ctx context.Context, req *collogspb.ExportLogsServiceRequest) (*collogspb.ExportLogsServiceResponse, error) {
+	if s.handler != nil {
+		if err := s.handler(ctx, req.ResourceLogs); err != nil {
+			return nil, err
+		}
+	}
+	return &collogspb.ExportLogsServiceResponse{}, nil
 }
