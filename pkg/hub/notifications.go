@@ -106,8 +106,12 @@ func (nd *NotificationDispatcher) handleEvent(evt Event) {
 		return
 	}
 
-	// Use activity for matching (notifications trigger on activity changes)
+	// Use activity for matching (notifications trigger on activity changes).
+	// Fall back to phase when activity is empty (e.g. phase "error" has no activity).
 	matchStatus := statusEvt.Activity
+	if matchStatus == "" {
+		matchStatus = statusEvt.Phase
+	}
 
 	nd.log.Debug("Notification dispatcher checking subscriptions",
 		"agentID", statusEvt.AgentID, "activity", matchStatus, "subscriptionCount", len(subs))
@@ -142,8 +146,11 @@ func (nd *NotificationDispatcher) storeAndDispatch(ctx context.Context, sub *sto
 		return
 	}
 
-	// Use activity for matching/display
+	// Use activity for matching/display; fall back to phase when activity is empty.
 	effectiveStatus := evt.Activity
+	if effectiveStatus == "" {
+		effectiveStatus = evt.Phase
+	}
 
 	message := formatNotificationMessage(agent, effectiveStatus)
 
@@ -247,6 +254,21 @@ func formatNotificationMessage(agent *store.Agent, status string) string {
 		return msg
 	case "LIMITS_EXCEEDED":
 		msg := fmt.Sprintf("%s has reached a state of LIMITS_EXCEEDED", agent.Slug)
+		if agent.Message != "" {
+			msg += ": " + agent.Message
+		}
+		return msg
+	case "STALLED":
+		msg := fmt.Sprintf("%s has STALLED", agent.Slug)
+		if agent.StalledFromActivity != "" {
+			msg += " (was " + agent.StalledFromActivity + ")"
+		}
+		if agent.Message != "" {
+			msg += ": " + agent.Message
+		}
+		return msg
+	case "ERROR":
+		msg := fmt.Sprintf("%s has reached a state of ERROR", agent.Slug)
 		if agent.Message != "" {
 			msg += ": " + agent.Message
 		}

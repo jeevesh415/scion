@@ -193,6 +193,17 @@ func (env *notificationTestEnv) publishStatus(activity string) {
 	})
 }
 
+// publishStatusWithPhase publishes an agent status event with a specific phase and activity.
+func (env *notificationTestEnv) publishStatusWithPhase(phase, activity string) {
+	env.pub.PublishAgentStatus(context.Background(), &store.Agent{
+		ID:       env.watched.ID,
+		Slug:     env.watched.Slug,
+		GroveID:  env.grove.ID,
+		Phase:    phase,
+		Activity: activity,
+	})
+}
+
 func TestNotificationDispatcher_HappyPath(t *testing.T) {
 	env := setupNotificationTest(t)
 	env.nd.Start()
@@ -507,10 +518,40 @@ func TestFormatNotificationMessage(t *testing.T) {
 			expected: "cruncher has reached a state of LIMITS_EXCEEDED: Token limit reached",
 		},
 		{
-			name:     "Unknown status",
+			name:     "ERROR without message",
 			agent:    &store.Agent{Slug: "bot"},
 			status:   "ERROR",
-			expected: "bot has reached status: ERROR",
+			expected: "bot has reached a state of ERROR",
+		},
+		{
+			name:     "ERROR with message",
+			agent:    &store.Agent{Slug: "bot", Message: "Container OOM killed"},
+			status:   "ERROR",
+			expected: "bot has reached a state of ERROR: Container OOM killed",
+		},
+		{
+			name:     "STALLED without context",
+			agent:    &store.Agent{Slug: "bot"},
+			status:   "STALLED",
+			expected: "bot has STALLED",
+		},
+		{
+			name:     "STALLED with prior activity",
+			agent:    &store.Agent{Slug: "bot", StalledFromActivity: "thinking"},
+			status:   "STALLED",
+			expected: "bot has STALLED (was thinking)",
+		},
+		{
+			name:     "STALLED with prior activity and message",
+			agent:    &store.Agent{Slug: "bot", StalledFromActivity: "executing", Message: "Stuck on build"},
+			status:   "STALLED",
+			expected: "bot has STALLED (was executing): Stuck on build",
+		},
+		{
+			name:     "Unknown status",
+			agent:    &store.Agent{Slug: "bot"},
+			status:   "SOMETHING_ELSE",
+			expected: "bot has reached status: SOMETHING_ELSE",
 		},
 		{
 			name:     "Case insensitive input",
@@ -640,4 +681,97 @@ func TestNotificationDispatcher_WaitingForInputWithMessage(t *testing.T) {
 
 	calls := env.dispatcher.getCalls()
 	assert.Equal(t, agentNotificationPrefix+"watched-agent is WAITING_FOR_INPUT: Please approve the PR", calls[0].Message)
+}
+
+func TestNotificationDispatcher_StalledActivity(t *testing.T) {
+	env := setupNotificationTest(t)
+
+	// Replace subscription to include STALLED
+	ctx := context.Background()
+	require.NoError(t, env.store.DeleteNotificationSubscription(ctx, env.sub.ID))
+	stalledSub := &store.NotificationSubscription{
+		ID:                api.NewUUID(),
+		AgentID:           env.watched.ID,
+		SubscriberType:    store.SubscriberTypeAgent,
+		SubscriberID:      env.subscriber.Slug,
+		GroveID:           env.grove.ID,
+		TriggerActivities: []string{"COMPLETED", "WAITING_FOR_INPUT", "STALLED"},
+		CreatedAt:         time.Now(),
+		CreatedBy:         "test",
+	}
+	require.NoError(t, env.store.CreateNotificationSubscription(ctx, stalledSub))
+
+	// Set stalled context on the watched agent
+	env.watched.StalledFromActivity = "thinking"
+	require.NoError(t, env.store.UpdateAgent(ctx, env.watched))
+
+	env.nd.Start()
+	defer env.nd.Stop()
+
+	env.publishStatus("stalled")
+
+	require.Eventually(t, func() bool {
+		return len(env.dispatcher.getCalls()) == 1
+	}, 2*time.Second, 50*time.Millisecond)
+
+	calls := env.dispatcher.getCalls()
+	assert.Contains(t, calls[0].Message, "watched-agent has STALLED (was thinking)")
+
+	notifs, err := env.store.GetNotifications(ctx, store.SubscriberTypeAgent, env.subscriber.Slug, false)
+	require.NoError(t, err)
+	assert.Len(t, notifs, 1)
+	assert.Equal(t, "STALLED", notifs[0].Status)
+}
+
+func TestNotificationDispatcher_ErrorPhase(t *testing.T) {
+	env := setupNotificationTest(t)
+
+	// Replace subscription to include ERROR
+	ctx := context.Background()
+	require.NoError(t, env.store.DeleteNotificationSubscription(ctx, env.sub.ID))
+	errorSub := &store.NotificationSubscription{
+		ID:                api.NewUUID(),
+		AgentID:           env.watched.ID,
+		SubscriberType:    store.SubscriberTypeAgent,
+		SubscriberID:      env.subscriber.Slug,
+		GroveID:           env.grove.ID,
+		TriggerActivities: []string{"COMPLETED", "ERROR"},
+		CreatedAt:         time.Now(),
+		CreatedBy:         "test",
+	}
+	require.NoError(t, env.store.CreateNotificationSubscription(ctx, errorSub))
+
+	env.nd.Start()
+	defer env.nd.Stop()
+
+	// Publish with phase=error and no activity (typical for infrastructure errors)
+	env.publishStatusWithPhase(string(state.PhaseError), "")
+
+	require.Eventually(t, func() bool {
+		return len(env.dispatcher.getCalls()) == 1
+	}, 2*time.Second, 50*time.Millisecond)
+
+	calls := env.dispatcher.getCalls()
+	assert.Contains(t, calls[0].Message, "watched-agent has reached a state of ERROR")
+
+	notifs, err := env.store.GetNotifications(ctx, store.SubscriberTypeAgent, env.subscriber.Slug, false)
+	require.NoError(t, err)
+	assert.Len(t, notifs, 1)
+	assert.Equal(t, "ERROR", notifs[0].Status)
+}
+
+func TestNotificationDispatcher_ErrorPhaseNotMatchedWithoutSubscription(t *testing.T) {
+	env := setupNotificationTest(t)
+
+	// Default subscription does not include ERROR
+	env.nd.Start()
+	defer env.nd.Stop()
+
+	env.publishStatusWithPhase(string(state.PhaseError), "")
+
+	// Give time for event to be processed
+	time.Sleep(200 * time.Millisecond)
+
+	// Should not trigger since default sub only has COMPLETED and WAITING_FOR_INPUT
+	assert.Empty(t, env.dispatcher.getCalls())
 }

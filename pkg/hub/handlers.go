@@ -6041,7 +6041,7 @@ func (s *Server) createNotifySubscription(ctx context.Context, agentID, groveID,
 		SubscriberType:    notifySubscriberType,
 		SubscriberID:      notifySubscriberID,
 		GroveID:           groveID,
-		TriggerActivities: []string{"COMPLETED", "WAITING_FOR_INPUT", "LIMITS_EXCEEDED"},
+		TriggerActivities: []string{"COMPLETED", "WAITING_FOR_INPUT", "LIMITS_EXCEEDED", "STALLED", "ERROR"},
 		CreatedAt:         time.Now(),
 		CreatedBy:         createdBy,
 	}

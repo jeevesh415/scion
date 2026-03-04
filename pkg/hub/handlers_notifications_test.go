@@ -377,6 +377,8 @@ func TestCreateGroveAgent_NotifyCreatesSubscription(t *testing.T) {
 	assert.Contains(t, subs[0].TriggerActivities, "COMPLETED")
 	assert.Contains(t, subs[0].TriggerActivities, "WAITING_FOR_INPUT")
 	assert.Contains(t, subs[0].TriggerActivities, "LIMITS_EXCEEDED")
+	assert.Contains(t, subs[0].TriggerActivities, "STALLED")
+	assert.Contains(t, subs[0].TriggerActivities, "ERROR")
 }
 
 func TestCreateGroveAgent_NoNotifyNoSubscription(t *testing.T) {
