@@ -65,7 +65,7 @@ func TestRestoreTerminalWritesResetSequences(t *testing.T) {
 		termState: &term.State{}, // non-nil sentinel
 	}
 
-	client.restoreTerminal()
+	client.restoreTerminal(true)
 
 	// Close the write end so the read end sees EOF.
 	w.Close()
@@ -78,6 +78,35 @@ func TestRestoreTerminalWritesResetSequences(t *testing.T) {
 	output := string(buf[:n])
 	if output != terminalResetSequences {
 		t.Errorf("restoreTerminal output = %q, want %q", output, terminalResetSequences)
+	}
+}
+
+func TestRestoreTerminalSkipsResetOnError(t *testing.T) {
+	// When writeResetSeqs is false (error path), restoreTerminal should
+	// not write escape sequences so error output remains visible.
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	client := &PTYClient{
+		oldFd:     int(w.Fd()),
+		termState: &term.State{}, // non-nil sentinel
+	}
+
+	client.restoreTerminal(false)
+
+	w.Close()
+	os.Stdout = origStdout
+
+	buf := make([]byte, 4096)
+	n, _ := r.Read(buf)
+	r.Close()
+
+	if n != 0 {
+		t.Errorf("restoreTerminal on error wrote %d bytes: %q, want no output", n, string(buf[:n]))
 	}
 }
 
@@ -95,7 +124,7 @@ func TestRestoreTerminalNoOpWhenNoState(t *testing.T) {
 		termState: nil,
 	}
 
-	client.restoreTerminal()
+	client.restoreTerminal(true)
 
 	w.Close()
 	os.Stdout = origStdout

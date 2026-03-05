@@ -164,9 +164,10 @@ func (c *PTYClient) Run() error {
 	if err := c.setupTerminal(); err != nil {
 		return fmt.Errorf("failed to setup terminal: %w", err)
 	}
+	var runErr error
 	defer func() {
-		slog.Debug("PTY client restoring terminal")
-		c.restoreTerminal()
+		slog.Debug("PTY client restoring terminal", "had_error", runErr != nil)
+		c.restoreTerminal(runErr == nil)
 	}()
 
 	// Send initial resize so the remote PTY matches our terminal size,
@@ -228,6 +229,7 @@ func (c *PTYClient) Run() error {
 	c.writeMu.Unlock()
 
 	slog.Debug("PTY client Run() returning", "error", err)
+	runErr = err
 	return err
 }
 
@@ -262,16 +264,21 @@ var terminalResetSequences = strings.Join([]string{
 }, "")
 
 // restoreTerminal restores the terminal to its original state.
-// It writes escape sequences to undo any terminal mode changes that may have
-// been applied by programs running in the PTY session (e.g., tmux), then
-// restores the original termios state.
-func (c *PTYClient) restoreTerminal() {
+// When writeResetSeqs is true, it writes escape sequences to undo terminal mode
+// changes that may have been applied by programs running in the PTY session
+// (e.g., tmux), then restores the original termios state. When false (i.e., on
+// error), it skips the reset sequences so that error output remains visible.
+// Subsequent calls after the first restore are no-ops.
+func (c *PTYClient) restoreTerminal(writeResetSeqs bool) {
 	if c.termState != nil {
-		// Write reset sequences before restoring termios, while stdout is
-		// still connected. These are idempotent — sending them when the
-		// modes are already off is harmless.
-		os.Stdout.Write([]byte(terminalResetSequences))
+		if writeResetSeqs {
+			// Write reset sequences before restoring termios, while stdout is
+			// still connected. These are idempotent — sending them when the
+			// modes are already off is harmless.
+			os.Stdout.Write([]byte(terminalResetSequences))
+		}
 		term.Restore(c.oldFd, c.termState)
+		c.termState = nil
 	}
 }
 
@@ -434,7 +441,7 @@ func (c *PTYClient) Close() error {
 	if c.cancel != nil {
 		c.cancel()
 	}
-	c.restoreTerminal()
+	c.restoreTerminal(true)
 	if c.conn != nil {
 		slog.Debug("PTY client closing websocket connection")
 		return c.conn.Close()
