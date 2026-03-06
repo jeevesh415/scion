@@ -305,7 +305,7 @@ The detailed design for the web form is deferred to a separate design round once
 - If `--config` is provided, a harness-config must be resolvable from the config, CLI flags, or settings
 - If both `--type` and `--config`, merge config over template
 
-### Phase 2: Hub API Support (Replace AgentConfigOverride)
+### Phase 2: Hub API Support (Replace AgentConfigOverride) ✅ COMPLETE
 
 **Scope:** Extend Hub create-agent API to accept a full `ScionConfig`. Remove `AgentConfigOverride`.
 
