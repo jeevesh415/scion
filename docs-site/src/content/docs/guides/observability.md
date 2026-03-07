@@ -161,6 +161,46 @@ By default, user prompts (`agent.user.prompt`) are excluded from telemetry to pr
 - **Redacted**: `prompt`, `user.email`, `tool_output`, `tool_input`
 - **Hashed**: `session_id`
 
+## HTTP Request Logs
+
+HTTP requests to Hub, Broker, and Web servers are logged as a dedicated structured stream, separate from application logs. Request logs use the `google.logging.type.HttpRequest` format and include grove/agent IDs, a generated request ID, and trace context from incoming headers.
+
+### Enabling Request Log Output
+
+| Method | Configuration |
+|--------|--------------|
+| **File** | Set `SCION_SERVER_REQUEST_LOG_PATH=/path/to/requests.log` |
+| **Cloud Logging** | Automatic when `SCION_CLOUD_LOGGING=true` — uses log name `scion_request_log` |
+| **Stdout** | Default when running in background mode (suppressed in `--foreground` mode) |
+
+### Trace Context Propagation
+
+The middleware generates a UUID `request_id` for every request and captures trace headers (`X-Cloud-Trace-Context`, `traceparent`, `X-Trace-ID`). These IDs are automatically attached to all application logs emitted during the request via `logging.Logger(ctx)`, enabling end-to-end correlation between the request log entry and any downstream application log entries.
+
+### Cloud Logging Queries
+
+Request logs appear under a separate log name from application logs:
+
+```
+-- All HTTP request logs
+logName="projects/YOUR_PROJECT/logs/scion_request_log"
+
+-- Slow requests (latency > 1s)
+logName="projects/YOUR_PROJECT/logs/scion_request_log"
+httpRequest.latency > "1s"
+
+-- Failed requests for a specific grove
+logName="projects/YOUR_PROJECT/logs/scion_request_log"
+httpRequest.status >= 400
+labels.grove_id = "my-grove"
+
+-- Correlate a request with its application logs
+logName="projects/YOUR_PROJECT/logs/scion" OR logName="projects/YOUR_PROJECT/logs/scion_request_log"
+jsonPayload.request_id = "YOUR_REQUEST_ID"
+```
+
+See the [Local Development Logging guide](/development/logging/#http-request-logging) for the full field reference and file output format.
+
 ## Querying Logs by Subsystem
 
 Hub and Broker logs include a `subsystem` attribute that identifies the internal subsystem that produced each log entry. This is separate from the top-level `component` field (which reflects the server mode: `scion-hub`, `scion-broker`, or `scion-server`) and provides finer-grained filtering.

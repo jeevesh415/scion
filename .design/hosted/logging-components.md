@@ -237,6 +237,27 @@ jsonPayload.subsystem = "broker.agent-lifecycle"
 
 ---
 
+## HTTP Request Log Stream
+
+In addition to subsystem-level application logs, the server produces a dedicated **HTTP request log stream** using the `google.logging.type.HttpRequest` format. This stream is separate from application logs and captures per-request metadata including method, path, status, latency, response size, and contextual IDs (grove, agent, request, trace).
+
+### Routing
+
+- **File**: `SCION_SERVER_REQUEST_LOG_PATH` env var directs request logs to a file (JSON lines).
+- **Cloud Logging**: When `SCION_CLOUD_LOGGING=true`, request logs are sent to a separate log name (`scion_request_log`) using the same GCP client as application logs.
+- **Stdout**: In background/piped mode without file or cloud targets. Suppressed in `--foreground` mode to reduce noise.
+
+### Trace Context Propagation
+
+The request logging middleware generates a `request_id` (UUID) for every request and captures trace headers (`X-Cloud-Trace-Context`, `traceparent`, `X-Trace-ID`). These are stored in a `RequestMeta` context value that `logging.Logger(ctx)` automatically reads. This means any application log emitted during a request carries the same `request_id` and `trace_id`, enabling correlation between the request log entry and downstream application logs.
+
+### Implementation
+
+- `pkg/util/logging/request_log.go` — Core types (`HttpRequest`, `RequestMeta`, `InstrumentedResponseWriter`), context functions, logger factory (`NewRequestLogger`), and middleware factory (`RequestLogMiddleware`).
+- `pkg/util/logging/cloud_handler.go` — `NewCloudHandlerFromClient()` for reusing the GCP client with a different log ID.
+- `pkg/util/logging/logging.go` — `Logger(ctx)` enriched with `RequestMeta` from context.
+- `cmd/server.go` — Initializes the request logger and wires it to Hub, Broker, and Web servers.
+
 ## Related Documents
 
 - [Metrics Improvements](metrics-improvements.md) — OTel metrics pipeline and observability direction.

@@ -153,6 +153,22 @@ All server settings can be overridden via environment variables using the `SCION
 - `server.secrets.gcp_project_id` -> `SCION_SERVER_SECRETS_GCP_PROJECT_ID`
 - `server.secrets.gcp_credentials` -> `SCION_SERVER_SECRETS_GCP_CREDENTIALS`
 
+### Logging Environment Variables
+
+These environment variables control server-side logging behavior. They are not part of the `settings.yaml` structure.
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `SCION_LOG_GCP` | Enable GCP Cloud Logging JSON format on stdout | `false` |
+| `SCION_LOG_LEVEL` | Log level: `debug`, `info`, `warn`, `error` | `info` |
+| `SCION_CLOUD_LOGGING` | Send logs directly to Cloud Logging via client library | `false` |
+| `SCION_CLOUD_LOGGING_LOG_ID` | Log name in Cloud Logging for application logs | `scion` |
+| `SCION_GCP_PROJECT_ID` | GCP project ID for Cloud Logging (priority 1) | auto-detect |
+| `GOOGLE_CLOUD_PROJECT` | GCP project ID for Cloud Logging (priority 2) | - |
+| `SCION_SERVER_REQUEST_LOG_PATH` | Write HTTP request logs to a file at this path. Each line is a JSON object in `HttpRequest` format. When not set, request logs follow the default routing (stdout in background mode, suppressed in foreground mode, Cloud Logging when enabled). | (disabled) |
+
+See the [Local Development Logging guide](/development/logging/) for details on log formats, request log fields, and Cloud Logging integration.
+
 ### Hub Endpoint Resolution
 
 When `server.hub.public_url` is not explicitly set, the Hub endpoint injected into agents is resolved in this order:

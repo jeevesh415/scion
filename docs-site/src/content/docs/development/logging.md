@@ -69,6 +69,7 @@ With `SCION_LOG_GCP=true`, logs use GCP's expected format:
 | `SCION_CLOUD_LOGGING_LOG_ID` | Log name in Cloud Logging | `scion` |
 | `SCION_GCP_PROJECT_ID` | GCP project ID (priority 1 for Cloud Logging) | auto-detect |
 | `GOOGLE_CLOUD_PROJECT` | GCP project ID (priority 2 for Cloud Logging) | - |
+| `SCION_SERVER_REQUEST_LOG_PATH` | Write HTTP request logs to a file at this path | (disabled) |
 
 ## Sending Logs to GCP from Local Machine
 
@@ -245,6 +246,124 @@ SCION_LOG_GCP=true scion server start --enable-hub --enable-runtime-broker 2>&1 
 ```
 
 See the [Observability guide](/guides/observability/#querying-logs-by-subsystem) for the full list of subsystems and Cloud Logging query examples.
+
+## HTTP Request Logging
+
+HTTP requests to the Hub, Runtime Broker, and Web server are logged as a **dedicated structured stream** using the [`google.logging.type.HttpRequest`](https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#HttpRequest) format. This stream is separate from application logs, making it easy to filter, query, and alert on request traffic.
+
+### Request Log Destinations
+
+Request logs are routed based on the server's configuration:
+
+| Condition | Destination |
+|-----------|-------------|
+| `SCION_SERVER_REQUEST_LOG_PATH` is set | JSON lines written to the specified file |
+| `SCION_CLOUD_LOGGING=true` | Sent to Cloud Logging under log name `scion_request_log` (separate from application logs in `scion`) |
+| Background / piped mode (no file, no cloud) | Written to stdout as JSON |
+| `--foreground` mode (no file, no cloud) | **Suppressed** — request logs do not appear on stdout in foreground mode to reduce noise |
+
+You can combine file and Cloud Logging output. When `--foreground` is set, file and Cloud Logging targets are still active — only stdout output is suppressed.
+
+### File Output
+
+To write request logs to a file:
+
+```bash
+SCION_SERVER_REQUEST_LOG_PATH=/var/log/scion/requests.log scion server start
+```
+
+Each line is a JSON object:
+
+```json
+{
+  "time": "2026-03-07T12:00:00.000Z",
+  "level": "INFO",
+  "msg": "Request completed",
+  "httpRequest": {
+    "requestMethod": "GET",
+    "requestUrl": "/api/v1/groves/my-project/agents",
+    "status": 200,
+    "responseSize": 1234,
+    "userAgent": "scion-cli/0.1.0",
+    "remoteIp": "192.168.1.1:54321",
+    "latency": "0.045s",
+    "protocol": "HTTP/1.1"
+  },
+  "component": "hub",
+  "grove_id": "my-project",
+  "agent_id": "",
+  "request_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+### Request Log Fields
+
+| Field | Description |
+|-------|-------------|
+| `httpRequest.requestMethod` | HTTP method (GET, POST, etc.) |
+| `httpRequest.requestUrl` | Full request URL |
+| `httpRequest.status` | HTTP status code |
+| `httpRequest.responseSize` | Response body size in bytes |
+| `httpRequest.userAgent` | Client User-Agent header |
+| `httpRequest.remoteIp` | Client IP address and port |
+| `httpRequest.latency` | Request duration as `"Xs"` (e.g. `"0.045s"`) |
+| `httpRequest.protocol` | HTTP protocol version |
+| `component` | Server component: `hub`, `broker`, or `web` |
+| `grove_id` | Grove ID extracted from the URL path (if applicable) |
+| `agent_id` | Agent ID extracted from the URL path (if applicable) |
+| `request_id` | Generated UUID for correlating logs within a request |
+| `trace_id` | Trace header value from `X-Cloud-Trace-Context`, `traceparent`, or `X-Trace-ID` (if present) |
+
+### Trace Context Propagation
+
+The request logging middleware generates a unique `request_id` (UUID) for every request. If the client sends a trace header (`X-Cloud-Trace-Context`, `traceparent`, or `X-Trace-ID`), it is also captured as `trace_id`.
+
+Both `request_id` and `trace_id` are automatically attached to all application logs emitted during the request when using `logging.Logger(ctx)`:
+
+```go
+// In any handler, Logger(ctx) automatically includes request_id, trace_id, grove_id, agent_id
+log := logging.Logger(r.Context())
+log.Info("Processing agent", "name", agentName)
+// Output includes: request_id=..., trace_id=..., grove_id=..., agent_id=...
+```
+
+### Cloud Logging Queries
+
+When Cloud Logging is enabled, request logs appear under a separate log name (`scion_request_log`) from application logs (`scion`). This allows independent filtering:
+
+```
+-- All HTTP request logs
+logName="projects/YOUR_PROJECT/logs/scion_request_log"
+
+-- Slow requests (latency > 1s)
+logName="projects/YOUR_PROJECT/logs/scion_request_log"
+httpRequest.latency > "1s"
+
+-- Failed requests to a specific grove
+logName="projects/YOUR_PROJECT/logs/scion_request_log"
+httpRequest.status >= 400
+labels.grove_id = "my-grove"
+
+-- Correlate a request with its application logs
+logName="projects/YOUR_PROJECT/logs/scion" OR logName="projects/YOUR_PROJECT/logs/scion_request_log"
+jsonPayload.request_id = "550e8400-e29b-41d4-a716-446655440000"
+```
+
+### Analyzing Request Logs with jq
+
+```bash
+# Pretty-print request logs from file
+cat /var/log/scion/requests.log | jq .
+
+# Show only failed requests
+cat /var/log/scion/requests.log | jq 'select(.httpRequest.status >= 400)'
+
+# Top endpoints by request count
+cat /var/log/scion/requests.log | jq -r '.httpRequest.requestUrl' | sort | uniq -c | sort -rn | head
+
+# Average latency per endpoint
+cat /var/log/scion/requests.log | jq -r '[.httpRequest.requestUrl, .httpRequest.latency] | @tsv'
+```
 
 ## Testing Log Output
 
