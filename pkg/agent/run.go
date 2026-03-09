@@ -497,7 +497,10 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 	// When hub is explicitly disabled, strip hub env vars from both
 	// opts.Env and the scion config env section to prevent leakage
 	// through buildAgentEnv (which processes scionCfg.Env independently).
-	if hubDisabled {
+	// In broker mode, never strip hub env vars — the broker handler is
+	// authoritative about hub connectivity and the grove settings on the
+	// broker host may not accurately reflect the hub-connected state.
+	if hubDisabled && !opts.BrokerMode {
 		delete(opts.Env, "SCION_HUB_ENDPOINT")
 		delete(opts.Env, "SCION_HUB_URL")
 		if finalScionCfg != nil && finalScionCfg.Env != nil {
