@@ -6,7 +6,8 @@ BUILD_DIR     := ./build
 CONTAINER_DIR := ./.build/container
 INSTALL_DIR   := $(HOME)/.local/bin
 MAIN_PKG      := ./cmd/scion
-LDFLAGS       := $(shell ./hack/version.sh)
+LDFLAGS            := $(shell ./hack/version.sh)
+SCIONTOOL_LDFLAGS  := $(shell ./hack/version.sh github.com/ptone/scion-agent/cmd/sciontool/commands)
 CONTAINER_OS  := linux
 CONTAINER_ARCH := $(shell if [ "$$(uname -m)" = "x86_64" ]; then echo amd64; else echo arm64; fi)
 
@@ -60,7 +61,7 @@ container-sciontool:
 	@echo "Building sciontool for $(CONTAINER_OS)/$(CONTAINER_ARCH)..."
 	@mkdir -p $(CONTAINER_DIR)
 	@GOOS=$(CONTAINER_OS) GOARCH=$(CONTAINER_ARCH) CGO_ENABLED=0 \
-		go build -buildvcs=false -ldflags "$(LDFLAGS)" \
+		go build -buildvcs=false -ldflags "$(SCIONTOOL_LDFLAGS)" \
 		-o $(CONTAINER_DIR)/sciontool ./cmd/sciontool
 	@echo "Built: $(CONTAINER_DIR)/sciontool"
 
