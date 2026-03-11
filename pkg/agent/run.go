@@ -817,7 +817,7 @@ func buildAuthEnvOverlay(baseEnv map[string]string, secrets []api.ResolvedSecret
 		if target == "" {
 			continue
 		}
-		if _, exists := overlay[target]; !exists {
+		if existing, exists := overlay[target]; !exists || existing == "" {
 			overlay[target] = s.Value
 		}
 	}

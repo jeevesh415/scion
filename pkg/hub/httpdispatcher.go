@@ -322,6 +322,23 @@ func (d *HTTPAgentDispatcher) buildCreateRequest(ctx context.Context, agent *sto
 		if d.debug {
 			d.log.Debug("Resolved secrets for agent", "count", len(resolvedSecrets))
 		}
+
+		// Inject environment-type secrets into ResolvedEnv so the broker
+		// receives them as plain env vars for auth resolution. This mirrors
+		// DispatchAgentStart which merges env-type secrets into resolvedEnv
+		// before dispatching. Without this, the broker's auth pipeline
+		// relies solely on buildAuthEnvOverlay in run.go, which may not
+		// see secrets if they are only in ResolvedSecrets.
+		if req.ResolvedEnv == nil {
+			req.ResolvedEnv = make(map[string]string)
+		}
+		for _, s := range resolvedSecrets {
+			if (s.Type == "environment" || s.Type == "") && s.Target != "" {
+				if existing, exists := req.ResolvedEnv[s.Target]; !exists || existing == "" {
+					req.ResolvedEnv[s.Target] = s.Value
+				}
+			}
+		}
 	}
 
 	// Log a summary of env resolution sources
@@ -768,7 +785,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentStart(ctx context.Context, agent *sto
 	} else {
 		for _, s := range resolvedSecrets {
 			if (s.Type == "environment" || s.Type == "") && s.Target != "" {
-				if _, exists := resolvedEnv[s.Target]; !exists {
+				if existing, exists := resolvedEnv[s.Target]; !exists || existing == "" {
 					resolvedEnv[s.Target] = s.Value
 				}
 			}

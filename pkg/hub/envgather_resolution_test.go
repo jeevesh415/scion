@@ -305,12 +305,15 @@ func TestResolution_SecretPromotedEnvVar(t *testing.T) {
 		t.Fatalf("buildCreateRequest failed: %v", err)
 	}
 
-	// Should NOT be in ResolvedEnv (was deleted from env_vars)
-	if _, ok := req.ResolvedEnv["GEMINI_API_KEY"]; ok {
-		t.Error("GEMINI_API_KEY should NOT be in ResolvedEnv (was deleted from env_vars table)")
+	// Environment-type secrets should be injected into ResolvedEnv so the
+	// broker receives them as plain env vars for auth resolution.
+	if v, ok := req.ResolvedEnv["GEMINI_API_KEY"]; !ok {
+		t.Error("GEMINI_API_KEY should be in ResolvedEnv (injected from env-type secret)")
+	} else if v != "secret-gemini-value" {
+		t.Errorf("ResolvedEnv GEMINI_API_KEY = %q, want %q", v, "secret-gemini-value")
 	}
 
-	// Should be in ResolvedSecrets (resolved via secret backend)
+	// Should also be in ResolvedSecrets (resolved via secret backend)
 	found := false
 	for _, rs := range req.ResolvedSecrets {
 		if rs.Name == "GEMINI_API_KEY" {

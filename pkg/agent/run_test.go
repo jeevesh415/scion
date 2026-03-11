@@ -1566,6 +1566,37 @@ func TestBuildAuthEnvOverlay_DoesNotMutateBaseEnv(t *testing.T) {
 	}
 }
 
+func TestBuildAuthEnvOverlay_EmptyValueOverriddenBySecret(t *testing.T) {
+	// Empty-value passthrough markers in baseEnv should be overridden by
+	// secrets so that auth resolution can detect the credential.
+	baseEnv := map[string]string{
+		"GEMINI_API_KEY": "",
+		"EXISTING_KEY":   "keep-me",
+	}
+	secrets := []api.ResolvedSecret{
+		{
+			Name:   "GEMINI_API_KEY",
+			Type:   "environment",
+			Target: "GEMINI_API_KEY",
+			Value:  "secret-api-key-value",
+			Source: "user",
+		},
+	}
+
+	overlay := buildAuthEnvOverlay(baseEnv, secrets)
+
+	if overlay["GEMINI_API_KEY"] != "secret-api-key-value" {
+		t.Errorf("overlay GEMINI_API_KEY = %q, want %q (secret should override empty passthrough)", overlay["GEMINI_API_KEY"], "secret-api-key-value")
+	}
+	if overlay["EXISTING_KEY"] != "keep-me" {
+		t.Errorf("overlay EXISTING_KEY = %q, want %q", overlay["EXISTING_KEY"], "keep-me")
+	}
+	// Ensure baseEnv was not mutated
+	if baseEnv["GEMINI_API_KEY"] != "" {
+		t.Error("base env mutated: GEMINI_API_KEY should still be empty")
+	}
+}
+
 func TestFilterResolvedSecretsForResolvedAuth(t *testing.T) {
 	secrets := []api.ResolvedSecret{
 		{Name: "GEMINI_API_KEY", Type: "environment", Target: "GEMINI_API_KEY", Value: "gemini"},
