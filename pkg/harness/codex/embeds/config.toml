@@ -6,7 +6,7 @@ approval_policy = "never"
 # TODO remove and replace when codex lands full hook support
 # notify = "sh ~/.codex/scion_notify.sh"
 
-model = "gpt-5.4-codex"
+model = "gpt-5.4"
 model_reasoning_effort = "medium"
 
 [notice.model_migrations]
