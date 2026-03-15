@@ -342,6 +342,12 @@ export class ScionPageGroveSettings extends LitElement {
       color: var(--sl-color-danger-700, #b91c1c);
       margin-bottom: 1rem;
     }
+
+    .done-footer {
+      display: flex;
+      justify-content: flex-start;
+      margin-top: 1rem;
+    }
   `;
 
   override connectedCallback(): void {
@@ -602,6 +608,16 @@ export class ScionPageGroveSettings extends LitElement {
           <p>You don't have permission to modify this grove.</p>
         </div>
       `}
+
+      <div class="done-footer">
+        <sl-button
+          variant="default"
+          href="/groves/${this.groveId}"
+        >
+          <sl-icon slot="prefix" name="arrow-left"></sl-icon>
+          Back to ${this.grove.name}
+        </sl-button>
+      </div>
     `;
   }
 
