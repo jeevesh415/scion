@@ -103,6 +103,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		migrationV26,
 		migrationV27,
 		migrationV28,
+		migrationV29,
 	}
 
 	// Create migrations table if not exists
@@ -689,6 +690,34 @@ ALTER TABLE users ADD COLUMN last_seen TIMESTAMP;
 // Stores grove-level shared directory configuration as JSON.
 const migrationV28 = `
 ALTER TABLE groves ADD COLUMN shared_dirs TEXT DEFAULT '';
+`
+
+// migrationV29 drops the UNIQUE constraint on groves.git_remote.
+// Multiple groves can share the same git remote (e.g. different directories
+// in the same repository with separate .scion/ markers).
+const migrationV29 = `
+CREATE TABLE groves_new (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	slug TEXT NOT NULL,
+	git_remote TEXT,
+	labels TEXT,
+	annotations TEXT,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	created_by TEXT,
+	owner_id TEXT,
+	visibility TEXT NOT NULL DEFAULT 'private',
+	default_runtime_broker_id TEXT REFERENCES runtime_brokers(id) ON DELETE SET NULL,
+	shared_dirs TEXT DEFAULT ''
+);
+INSERT INTO groves_new SELECT id, name, slug, git_remote, labels, annotations, created_at, updated_at, created_by, owner_id, visibility, default_runtime_broker_id, shared_dirs FROM groves;
+DROP TABLE groves;
+ALTER TABLE groves_new RENAME TO groves;
+CREATE INDEX IF NOT EXISTS idx_groves_slug ON groves(slug);
+CREATE INDEX IF NOT EXISTS idx_groves_git_remote ON groves(git_remote);
+CREATE INDEX IF NOT EXISTS idx_groves_owner ON groves(owner_id);
+CREATE INDEX IF NOT EXISTS idx_groves_default_runtime_broker ON groves(default_runtime_broker_id);
 `
 
 // Helper functions for JSON marshaling/unmarshaling

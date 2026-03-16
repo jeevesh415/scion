@@ -1012,6 +1012,72 @@ func TestRegisterGrove_GitBacked_DeterministicID(t *testing.T) {
 	assert.True(t, resp.Created)
 }
 
+// TestRegisterGrove_SameGitRemote_DifferentName verifies that two groves
+// sharing the same git remote but with different names are registered as
+// separate hub groves rather than being collapsed into one.
+func TestRegisterGrove_SameGitRemote_DifferentName(t *testing.T) {
+	srv, _ := testServer(t)
+
+	gitRemote := "git@github.com:acme/monorepo.git"
+
+	// Register the first grove
+	rec1 := doRequest(t, srv, http.MethodPost, "/api/v1/groves/register", RegisterGroveRequest{
+		Name:      "sequence-example",
+		GitRemote: gitRemote,
+	})
+	require.Equal(t, http.StatusOK, rec1.Code, "body: %s", rec1.Body.String())
+
+	var resp1 RegisterGroveResponse
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&resp1))
+	assert.True(t, resp1.Created)
+	assert.Equal(t, "sequence-example", resp1.Grove.Name)
+
+	// Register a second grove with the same git remote but a different name
+	rec2 := doRequest(t, srv, http.MethodPost, "/api/v1/groves/register", RegisterGroveRequest{
+		ID:        api.NewUUID(), // different client-provided ID
+		Name:      "fan-out-parallel",
+		GitRemote: gitRemote,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code, "body: %s", rec2.Body.String())
+
+	var resp2 RegisterGroveResponse
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp2))
+	assert.True(t, resp2.Created, "second grove with different name should be created, not matched")
+	assert.Equal(t, "fan-out-parallel", resp2.Grove.Name)
+	assert.NotEqual(t, resp1.Grove.ID, resp2.Grove.ID, "groves with different names should have different IDs")
+}
+
+// TestRegisterGrove_SameGitRemote_SameName verifies that registering the same
+// name and git remote is still idempotent (same grove returned).
+func TestRegisterGrove_SameGitRemote_SameName(t *testing.T) {
+	srv, _ := testServer(t)
+
+	gitRemote := "git@github.com:acme/widgets.git"
+
+	// Register grove
+	rec1 := doRequest(t, srv, http.MethodPost, "/api/v1/groves/register", RegisterGroveRequest{
+		Name:      "widgets",
+		GitRemote: gitRemote,
+	})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var resp1 RegisterGroveResponse
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&resp1))
+	assert.True(t, resp1.Created)
+
+	// Register again with same name and remote
+	rec2 := doRequest(t, srv, http.MethodPost, "/api/v1/groves/register", RegisterGroveRequest{
+		Name:      "widgets",
+		GitRemote: gitRemote,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 RegisterGroveResponse
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp2))
+	assert.False(t, resp2.Created, "same name + same remote should match existing grove")
+	assert.Equal(t, resp1.Grove.ID, resp2.Grove.ID)
+}
+
 // TestDeleteGrove_CascadesEnvVarsSecretsHarnessConfigs verifies that deleting a
 // grove removes all grove-scoped env vars, secrets, and harness configs.
 func TestDeleteGrove_CascadesEnvVarsSecretsHarnessConfigs(t *testing.T) {

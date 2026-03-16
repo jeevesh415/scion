@@ -2486,7 +2486,13 @@ func (s *Server) handleGroveRegister(w http.ResponseWriter, r *http.Request) {
 		// For groves with git remote, look up by git remote (exact match)
 		existingGrove, err := s.store.GetGroveByGitRemote(ctx, normalizedRemote)
 		if err == nil {
-			grove = existingGrove
+			// Only match by git remote if the name is compatible.
+			// Different groves in the same repository (e.g. different
+			// directories with separate .scion/ markers) must not be
+			// collapsed into one hub grove.
+			if api.Slugify(existingGrove.Name) == api.Slugify(req.Name) {
+				grove = existingGrove
+			}
 		} else if err != store.ErrNotFound {
 			writeErrorFromErr(w, err, "")
 			return
