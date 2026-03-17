@@ -340,7 +340,7 @@ func TestGetGitGroveExternalAgentsDir(t *testing.T) {
 		t.Fatalf("GetGitGroveExternalAgentsDir failed: %v", err)
 	}
 
-	want := filepath.Join(tmpHome, ".scion", "grove-configs", "my-repo__550e8400", "agents")
+	want := filepath.Join(tmpHome, ".scion", "grove-configs", "my-repo__550e8400", ".scion", "agents")
 	if got != want {
 		t.Errorf("GetGitGroveExternalAgentsDir() = %q, want %q", got, want)
 	}
@@ -373,7 +373,7 @@ func TestGetAgentHomePath_GitGroveSplitStorage(t *testing.T) {
 	WriteGroveID(projectDir, "550e8400-e29b-41d4-a716-446655440000")
 
 	got := GetAgentHomePath(projectDir, "test-agent")
-	want := filepath.Join(tmpHome, ".scion", "grove-configs", "my-repo__550e8400", "agents", "test-agent", "home")
+	want := filepath.Join(tmpHome, ".scion", "grove-configs", "my-repo__550e8400", ".scion", "agents", "test-agent", "home")
 	if got != want {
 		t.Errorf("GetAgentHomePath() = %q, want %q", got, want)
 	}

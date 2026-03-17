@@ -81,7 +81,9 @@ func createTestHubNativeGrove(t *testing.T, srv *Server, name string) (*store.Gr
 		// (e.g. ~/.scion/grove-configs/<slug>__<uuid>/).
 		scionDir := filepath.Join(workspacePath, ".scion")
 		if extAgentsDir, err := config.GetGitGroveExternalAgentsDir(scionDir); err == nil && extAgentsDir != "" {
-			os.RemoveAll(filepath.Dir(extAgentsDir)) // remove the <slug>__<uuid> parent dir
+			// extAgentsDir is ~/.scion/grove-configs/<slug>__<uuid>/.scion/agents
+			// Go up past "agents" and ".scion" to remove the <slug>__<uuid> parent dir
+			os.RemoveAll(filepath.Dir(filepath.Dir(extAgentsDir)))
 		}
 		os.RemoveAll(workspacePath)
 	})

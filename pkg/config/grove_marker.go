@@ -214,7 +214,7 @@ func GetGitGroveExternalConfigDir(projectDir string) (string, error) {
 }
 
 // GetGitGroveExternalAgentsDir returns the external agents directory for a git grove.
-// Git groves store agent homes externally at ~/.scion/grove-configs/<slug>__<uuid>/agents/
+// Git groves store agent homes externally at ~/.scion/grove-configs/<slug>__<uuid>/.scion/agents/
 // while keeping worktrees in-repo.
 // Returns ("", nil) if the grove-id file does not exist (not yet initialized for split storage).
 func GetGitGroveExternalAgentsDir(projectDir string) (string, error) {
@@ -238,7 +238,7 @@ func GetGitGroveExternalAgentsDir(projectDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, GlobalDir, "grove-configs", marker.DirName(), "agents"), nil
+	return filepath.Join(home, GlobalDir, "grove-configs", marker.DirName(), DotScion, "agents"), nil
 }
 
 // GetAgentHomePath returns the correct home directory path for an agent.

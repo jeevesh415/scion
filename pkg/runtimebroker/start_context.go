@@ -108,7 +108,7 @@ func (s *Server) buildStartContext(ctx context.Context, in startContextInputs) (
 	// broker creates the workspace at ~/.scion/groves/<slug>/. Without a
 	// grove-id file, agents are provisioned inside that workspace directory.
 	// Writing the hub's grove ID enables split storage so agent homes go to
-	// ~/.scion/grove-configs/<slug>__<uuid>/agents/ instead.
+	// ~/.scion/grove-configs/<slug>__<uuid>/.scion/agents/ instead.
 	//
 	// This block also handles the case where the createAgent handler already
 	// resolved GrovePath (for env-gather) before calling buildStartContext,

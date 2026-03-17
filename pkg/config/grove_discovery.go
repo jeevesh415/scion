@@ -46,20 +46,17 @@ type GroveInfo struct {
 	WorkspacePath string      `json:"workspace_path,omitempty"`
 	Status        GroveStatus `json:"status"`
 	AgentCount    int         `json:"agent_count"`
+	// agentsPath overrides the default agents directory derivation.
+	// Used for legacy git groves where agents are a sibling of .scion/.
+	agentsPath string
 }
 
 // AgentsDir returns the path to the agents directory for this grove.
 func (g GroveInfo) AgentsDir() string {
-	switch g.Type {
-	case GroveTypeExternal:
-		return filepath.Join(g.ConfigPath, "agents")
-	case GroveTypeGit:
-		// Git grove external dir: <grove-configs>/<slug__uuid>/agents/
-		return filepath.Join(filepath.Dir(g.ConfigPath), "agents")
-	case GroveTypeGlobal:
-		return filepath.Join(g.ConfigPath, "agents")
+	if g.agentsPath != "" {
+		return g.agentsPath
 	}
-	return ""
+	return filepath.Join(g.ConfigPath, "agents")
 }
 
 // DiscoverGroves scans for all known groves on this machine.
@@ -111,25 +108,28 @@ func DiscoverGroves() ([]GroveInfo, error) {
 		}
 
 		configPath := filepath.Join(groveConfigsDir, dirName, DotScion)
-		agentsDirSibling := filepath.Join(groveConfigsDir, dirName, "agents")
+		legacyAgentsSibling := filepath.Join(groveConfigsDir, dirName, "agents")
 
 		_, scionErr := os.Stat(configPath)
-		_, agentsErr := os.Stat(agentsDirSibling)
+		_, legacyAgentsErr := os.Stat(legacyAgentsSibling)
 		scionExists := scionErr == nil
-		agentsExist := agentsErr == nil
+		legacyAgentsExist := legacyAgentsErr == nil
 
 		var gi GroveInfo
 		switch {
-		case scionExists && agentsExist:
-			// Git grove with external config dir (new layout):
-			// .scion/ holds settings/templates, agents/ holds agent homes.
-			gi = groveInfoFromGitExternalWithConfig(configPath, agentsDirSibling, dirName, slug)
 		case scionExists:
-			// Non-git external grove: agents/ is inside .scion/.
-			gi = groveInfoFromExternal(configPath, dirName, slug)
-		case agentsExist:
-			// Legacy git grove without external config dir.
-			gi = groveInfoFromGitExternal(agentsDirSibling, dirName, slug)
+			// .scion/ exists — distinguish external vs git by checking for
+			// a workspace_path in settings (external groves point back to
+			// their original project directory).
+			if settings, err := LoadSettings(configPath); err == nil && settings.WorkspacePath != "" {
+				gi = groveInfoFromExternal(configPath, dirName, slug)
+			} else {
+				agentsDir := filepath.Join(configPath, "agents")
+				gi = groveInfoFromGitExternalWithConfig(configPath, agentsDir, dirName, slug)
+			}
+		case legacyAgentsExist:
+			// Legacy git grove: agents/ as sibling without .scion/ dir.
+			gi = groveInfoFromGitExternal(legacyAgentsSibling, dirName, slug)
 		default:
 			// No .scion and no agents dir — orphaned leftover.
 			gi = GroveInfo{
@@ -177,7 +177,7 @@ func groveInfoFromExternal(configPath, dirName, slug string) GroveInfo {
 }
 
 // groveInfoFromGitExternalWithConfig builds a GroveInfo for a git grove that has
-// both an external config dir (.scion/) and an external agents dir (agents/).
+// an external config dir (.scion/) with agents stored at .scion/agents/.
 // This is the layout produced by initInRepoGrove after the config externalization change.
 func groveInfoFromGitExternalWithConfig(configPath, agentsDir, dirName, slug string) GroveInfo {
 	gi := GroveInfo{
@@ -200,12 +200,11 @@ func groveInfoFromGitExternalWithConfig(configPath, agentsDir, dirName, slug str
 // directory (no .scion/ subdir). If the agents directory is empty, the grove is marked
 // as orphaned since there is no config to link back to the source project.
 func groveInfoFromGitExternal(agentsDir, dirName, slug string) GroveInfo {
-	// ConfigPath points to the hypothetical .scion/ location so that AgentsDir()
-	// computes the correct path via filepath.Dir(ConfigPath)/agents.
 	gi := GroveInfo{
 		Name:       slug,
 		Type:       GroveTypeGit,
 		ConfigPath: filepath.Join(filepath.Dir(agentsDir), DotScion),
+		agentsPath: agentsDir, // legacy: agents as sibling of .scion/
 		Status:     GroveStatusOK,
 	}
 

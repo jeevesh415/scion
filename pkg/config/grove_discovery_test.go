@@ -311,7 +311,7 @@ func TestGroveInfo_AgentsDir(t *testing.T) {
 				Type:       GroveTypeGit,
 				ConfigPath: "/home/user/.scion/grove-configs/repo__def456/.scion",
 			},
-			expected: "/home/user/.scion/grove-configs/repo__def456/agents",
+			expected: "/home/user/.scion/grove-configs/repo__def456/.scion/agents",
 		},
 		{
 			name: "global grove",
@@ -459,10 +459,10 @@ func TestDiscoverGroves_GitGroveWithExternalConfig(t *testing.T) {
 
 	os.MkdirAll(filepath.Join(tmpHome, ".scion"), 0755)
 
-	// Create a git grove in the new layout: .scion/ (config) + agents/ (homes)
+	// Create a git grove in the new layout: .scion/ (config + agents)
 	groveDir := filepath.Join(tmpHome, ".scion", "grove-configs", "newrepo__ccdd1122")
 	scionDir := filepath.Join(groveDir, ".scion")
-	agentsDir := filepath.Join(groveDir, "agents", "worker1", "home")
+	agentsDir := filepath.Join(scionDir, "agents", "worker1", "home")
 	os.MkdirAll(scionDir, 0755)
 	os.MkdirAll(agentsDir, 0755)
 
@@ -493,8 +493,8 @@ func TestDiscoverGroves_GitGroveWithExternalConfig(t *testing.T) {
 	if gitGrove.ConfigPath != scionDir {
 		t.Errorf("expected ConfigPath %q, got %q", scionDir, gitGrove.ConfigPath)
 	}
-	// AgentsDir() should point to the sibling agents/ dir
-	wantAgentsDir := filepath.Join(groveDir, "agents")
+	// AgentsDir() should point to .scion/agents/ inside the grove config dir
+	wantAgentsDir := filepath.Join(scionDir, "agents")
 	if got := gitGrove.AgentsDir(); got != wantAgentsDir {
 		t.Errorf("AgentsDir() = %q, want %q", got, wantAgentsDir)
 	}

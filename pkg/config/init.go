@@ -466,7 +466,7 @@ func initExternalGrove(projectDir string, opt InitProjectOpts) error {
 
 // initInRepoGrove creates a git grove with .scion as a directory in the repo.
 // Settings are stored externally at ~/.scion/grove-configs/<slug>__<uuid>/.scion/
-// and agent homes are stored externally at ~/.scion/grove-configs/<slug>__<uuid>/agents/.
+// and agent homes are stored externally at ~/.scion/grove-configs/<slug>__<uuid>/.scion/agents/.
 // Templates live in the in-repo .scion/templates/ so they can be committed to the repository.
 func initInRepoGrove(projectDir string, opt InitProjectOpts) error {
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
