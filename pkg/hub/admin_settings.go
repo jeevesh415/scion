@@ -21,12 +21,18 @@ import (
 	"path/filepath"
 
 	"github.com/GoogleCloudPlatform/scion/pkg/config"
+	"github.com/GoogleCloudPlatform/scion/pkg/version"
 	yamlv3 "gopkg.in/yaml.v3"
 )
 
 // ServerConfigResponse is the API representation of the server settings file.
 // It mirrors the on-disk settings.yaml structure, omitting sensitive fields.
 type ServerConfigResponse struct {
+	// Read-only server build info (not persisted in settings.yaml).
+	ScionVersion   string `json:"scion_version,omitempty"`
+	ScionCommit    string `json:"scion_commit,omitempty"`
+	ScionBuildTime string `json:"scion_build_time,omitempty"`
+
 	SchemaVersion        string                                `json:"schema_version"`
 	ActiveProfile        string                                `json:"active_profile,omitempty"`
 	DefaultTemplate      string                                `json:"default_template,omitempty"`
@@ -88,7 +94,12 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Return empty/default response if no settings file exists
-			writeJSON(w, http.StatusOK, ServerConfigResponse{SchemaVersion: "1"})
+			writeJSON(w, http.StatusOK, ServerConfigResponse{
+				ScionVersion:   version.Short(),
+				ScionCommit:    version.Commit,
+				ScionBuildTime: version.BuildTime,
+				SchemaVersion:  "1",
+			})
 			return
 		}
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError, "Failed to read settings file", nil)
@@ -103,6 +114,9 @@ func (s *Server) handleGetServerConfig(w http.ResponseWriter) {
 
 	// Mask sensitive fields before sending to the client
 	resp := ServerConfigResponse{
+		ScionVersion:         version.Short(),
+		ScionCommit:          version.Commit,
+		ScionBuildTime:       version.BuildTime,
 		SchemaVersion:        vs.SchemaVersion,
 		ActiveProfile:        vs.ActiveProfile,
 		DefaultTemplate:      vs.DefaultTemplate,

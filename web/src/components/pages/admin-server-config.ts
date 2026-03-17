@@ -167,6 +167,9 @@ interface V1RuntimeConfig {
 }
 
 interface ServerConfigResponse {
+  scion_version?: string;
+  scion_commit?: string;
+  scion_build_time?: string;
   schema_version: string;
   active_profile?: string;
   default_template?: string;
@@ -194,6 +197,11 @@ export class ScionPageAdminServerConfig extends LitElement {
   @state() private successMessage: string | null = null;
   @state() private activeTab = 'general';
   @state() private reloadResult: ReloadResult | null = null;
+
+  // ── Read-only server build info ──
+  @state() private scionVersion = '';
+  @state() private scionCommit = '';
+  @state() private scionBuildTime = '';
 
   // ── Form state (mirrors settings.yaml) ──
 
@@ -372,6 +380,40 @@ export class ScionPageAdminServerConfig extends LitElement {
       color: var(--scion-text-muted, #64748b);
     }
 
+    .version-info {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+    }
+
+    .version-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.125rem;
+    }
+
+    .version-label {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--scion-text-muted, #64748b);
+      text-transform: uppercase;
+      letter-spacing: 0.025em;
+    }
+
+    .version-value {
+      font-size: 0.875rem;
+      color: var(--scion-text, #1e293b);
+    }
+
+    .version-value code {
+      font-family: var(--sl-font-mono, monospace);
+      font-size: 0.8125rem;
+      background: var(--scion-bg, #f8fafc);
+      padding: 0.125rem 0.375rem;
+      border-radius: 0.25rem;
+      border: 1px solid var(--scion-border, #e2e8f0);
+    }
+
     sl-input::part(base),
     sl-select::part(combobox),
     sl-textarea::part(base) {
@@ -474,6 +516,11 @@ export class ScionPageAdminServerConfig extends LitElement {
   }
 
   private populateForm(data: ServerConfigResponse): void {
+    // Server build info
+    this.scionVersion = data.scion_version || '';
+    this.scionCommit = data.scion_commit || '';
+    this.scionBuildTime = data.scion_build_time || '';
+
     // General
     this.activeProfile = data.active_profile || '';
     this.defaultTemplate = data.default_template || '';
@@ -817,8 +864,38 @@ export class ScionPageAdminServerConfig extends LitElement {
 
   // ── Tab renderers ──
 
+  private renderVersionInfo() {
+    if (!this.scionVersion && !this.scionCommit) return nothing;
+    return html`
+      <div class="section">
+        <h3 class="section-title">Scion Server Version</h3>
+        <div class="version-info">
+          ${this.scionVersion
+            ? html`<div class="version-item">
+                <span class="version-label">Version</span>
+                <span class="version-value">${this.scionVersion}</span>
+              </div>`
+            : nothing}
+          ${this.scionCommit
+            ? html`<div class="version-item">
+                <span class="version-label">Git Commit</span>
+                <span class="version-value"><code>${this.scionCommit}</code></span>
+              </div>`
+            : nothing}
+          ${this.scionBuildTime
+            ? html`<div class="version-item">
+                <span class="version-label">Build Time</span>
+                <span class="version-value">${this.scionBuildTime}</span>
+              </div>`
+            : nothing}
+        </div>
+      </div>
+    `;
+  }
+
   private renderGeneralTab() {
     return html`
+      ${this.renderVersionInfo()}
       <div class="section">
         <h3 class="section-title">General Settings</h3>
         <div class="form-grid">
