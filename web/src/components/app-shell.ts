@@ -45,6 +45,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/admin/scheduler': 'Scheduler',
   '/admin/users': 'Users',
   '/admin/groups': 'Groups',
+  '/admin/server-config': 'Server Config',
 };
 
 @customElement('scion-app')
