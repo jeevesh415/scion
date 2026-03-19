@@ -127,7 +127,7 @@ If a rebase or merge results in conflicts:
 
 1.  Work on the given task until it is complete
 1.  Add or modify tests to ensure function is working as intended
-1.  Run the local CI checks before committing: `make ci`. This mirrors the GitHub Actions CI pipeline and includes web build, typecheck, Go formatting check, vet/lint, tests, and binary build. If you are on a memory-constrained machine, you can run individual steps: `make lint` and `make test-fast` at minimum.
+1.  Run the local CI checks before committing: `make ci` for fast checks (format, vet, tests, build), or `make ci-full` for the complete GitHub Actions mirror (adds web build, typecheck, and golangci-lint).
 1.  Commit your work to git as you go to capture changes as appropriate
 1.  When you are finished, rebase your branch on main, favoring main, running tests again if you had to resolve conflicts
 1.  Notify the user you have completed the task

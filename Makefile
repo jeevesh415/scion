@@ -14,7 +14,7 @@ GOLANGCI_LINT := $(shell command -v golangci-lint 2>/dev/null || echo $(shell go
 
 .DEFAULT_GOAL := help
 
-.PHONY: all build install test test-fast vet lint golangci-lint web web-typecheck fmt ci clean help container-sciontool container-scion container-binaries
+.PHONY: all build install test test-fast vet lint golangci-lint web web-typecheck fmt ci ci-full clean help container-sciontool container-scion container-binaries
 
 ## all: Build the web frontend, then compile the Go binary with embedded assets
 all: web install
@@ -58,7 +58,7 @@ golangci-lint:
 		exit 1; \
 	fi
 	@echo "Running golangci-lint (new issues vs main)..."
-	@$(GOLANGCI_LINT) run --build-tags no_sqlite --new-from-rev=main ./...
+	@GOGC=50 $(GOLANGCI_LINT) run --build-tags no_sqlite --new-from-rev=main ./...
 	@echo "golangci-lint passed."
 
 ## web: Build the web frontend
@@ -103,10 +103,15 @@ fmt:
 	@gofmt -w .
 	@echo "Go formatting done."
 
-## ci: Run the full CI pipeline locally (mirrors GitHub Actions)
-ci: fmt web web-typecheck lint golangci-lint test-fast build
+## ci: Run fast CI checks (format, vet, tests, build)
+ci: fmt lint test-fast build
 	@echo ""
 	@echo "CI passed."
+
+## ci-full: Run the full CI pipeline locally (mirrors GitHub Actions, includes web + golangci-lint)
+ci-full: fmt web web-typecheck lint golangci-lint test-fast build
+	@echo ""
+	@echo "CI (full) passed."
 
 ## clean: Remove build artifacts
 clean:
