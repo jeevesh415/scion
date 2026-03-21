@@ -1743,9 +1743,9 @@ func (s *Server) resolveManagerForOpts(opts api.StartOptions) agent.Manager {
 	mgr := agent.NewManager(resolved)
 
 	if resolved.Name() != "error" {
-		s.auxiliaryManagersMu.Lock()
-		s.auxiliaryManagers[resolved.Name()] = mgr
-		s.auxiliaryManagersMu.Unlock()
+		s.auxiliaryRuntimesMu.Lock()
+		s.auxiliaryRuntimes[resolved.Name()] = auxiliaryRuntime{Runtime: resolved, Manager: mgr}
+		s.auxiliaryRuntimesMu.Unlock()
 	}
 
 	return mgr

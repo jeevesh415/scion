@@ -35,7 +35,7 @@ import (
 	"github.com/GoogleCloudPlatform/scion/pkg/brokercredentials"
 	"github.com/GoogleCloudPlatform/scion/pkg/config"
 	"github.com/GoogleCloudPlatform/scion/pkg/hubclient"
-	"github.com/GoogleCloudPlatform/scion/pkg/runtime"
+	scionrt "github.com/GoogleCloudPlatform/scion/pkg/runtime"
 	"github.com/GoogleCloudPlatform/scion/pkg/templatecache"
 	"github.com/GoogleCloudPlatform/scion/pkg/util"
 	"github.com/GoogleCloudPlatform/scion/pkg/util/logging"
@@ -153,7 +153,7 @@ func DefaultServerConfig() ServerConfig {
 type Server struct {
 	config     ServerConfig
 	manager    agent.Manager
-	runtime    runtime.Runtime
+	runtime    scionrt.Runtime
 	httpServer *http.Server
 	mux        *http.ServeMux
 	mu         sync.RWMutex
@@ -187,11 +187,12 @@ type Server struct {
 
 	stateDir string
 
-	// auxiliaryManagers holds managers for non-default runtimes created via
-	// profile resolution (e.g. kubernetes when default is docker). Used by
-	// LookupContainerID as a fallback when the default manager can't find an agent.
-	auxiliaryManagers   map[string]agent.Manager
-	auxiliaryManagersMu sync.RWMutex
+	// auxiliaryRuntimes holds runtime+manager pairs for non-default runtimes
+	// created via profile resolution (e.g. kubernetes when default is docker).
+	// Used by LookupContainerID/LookupAgent as a fallback when the default
+	// manager can't find an agent.
+	auxiliaryRuntimes   map[string]auxiliaryRuntime
+	auxiliaryRuntimesMu sync.RWMutex
 
 	// Dedicated request logger (nil = disabled)
 	requestLogger *slog.Logger
@@ -203,6 +204,12 @@ type Server struct {
 	agentLifecycleLog *slog.Logger
 	messageLog        *slog.Logger
 	envSecretLog      *slog.Logger
+}
+
+// auxiliaryRuntime pairs a runtime with its manager for non-default runtimes.
+type auxiliaryRuntime struct {
+	Runtime scionrt.Runtime
+	Manager agent.Manager
 }
 
 // pendingAgentState holds the partial state for an agent waiting on env-gather.
@@ -232,7 +239,7 @@ type dispatchAttempt struct {
 }
 
 // New creates a new Runtime Broker API server.
-func New(cfg ServerConfig, mgr agent.Manager, rt runtime.Runtime) *Server {
+func New(cfg ServerConfig, mgr agent.Manager, rt scionrt.Runtime) *Server {
 	// Enable util debug logging when broker debug mode is on,
 	// so that debug messages from pkg/agent (which use util.Debugf)
 	// are visible in the broker's logs.
@@ -250,7 +257,7 @@ func New(cfg ServerConfig, mgr agent.Manager, rt runtime.Runtime) *Server {
 		hubConnections:    make(map[string]*HubConnection),
 		pendingEnvGather:  make(map[string]*pendingAgentState),
 		dispatchAttempts:  make(map[string]*dispatchAttempt),
-		auxiliaryManagers: make(map[string]agent.Manager),
+		auxiliaryRuntimes: make(map[string]auxiliaryRuntime),
 
 		// Subsystem loggers
 		agentLifecycleLog: logging.Subsystem("broker.agent-lifecycle"),
@@ -827,15 +834,15 @@ func (s *Server) LookupContainerID(ctx context.Context, slug string) (string, er
 
 	// Fall back to auxiliary runtimes (e.g. kubernetes when default is docker)
 	if len(agents) == 0 {
-		s.auxiliaryManagersMu.RLock()
-		auxManagers := make(map[string]agent.Manager, len(s.auxiliaryManagers))
-		for k, v := range s.auxiliaryManagers {
-			auxManagers[k] = v
+		s.auxiliaryRuntimesMu.RLock()
+		auxRuntimes := make(map[string]auxiliaryRuntime, len(s.auxiliaryRuntimes))
+		for k, v := range s.auxiliaryRuntimes {
+			auxRuntimes[k] = v
 		}
-		s.auxiliaryManagersMu.RUnlock()
+		s.auxiliaryRuntimesMu.RUnlock()
 
-		for rtName, mgr := range auxManagers {
-			auxAgents, auxErr := mgr.List(ctx, filter)
+		for rtName, aux := range auxRuntimes {
+			auxAgents, auxErr := aux.Manager.List(ctx, filter)
 			if auxErr == nil && len(auxAgents) > 0 {
 				agents = auxAgents
 				slog.Debug("Agent found via auxiliary runtime", "slug", slug, "runtime", rtName)
@@ -882,21 +889,23 @@ func (s *Server) LookupAgent(ctx context.Context, slug string) (*AgentLookupResu
 	}
 
 	runtimeName := s.runtime.Name()
+	var matchedRuntime scionrt.Runtime
 
 	// Fall back to auxiliary runtimes
 	if len(agents) == 0 {
-		s.auxiliaryManagersMu.RLock()
-		auxManagers := make(map[string]agent.Manager, len(s.auxiliaryManagers))
-		for k, v := range s.auxiliaryManagers {
-			auxManagers[k] = v
+		s.auxiliaryRuntimesMu.RLock()
+		auxRuntimes := make(map[string]auxiliaryRuntime, len(s.auxiliaryRuntimes))
+		for k, v := range s.auxiliaryRuntimes {
+			auxRuntimes[k] = v
 		}
-		s.auxiliaryManagersMu.RUnlock()
+		s.auxiliaryRuntimesMu.RUnlock()
 
-		for rtName, mgr := range auxManagers {
-			auxAgents, auxErr := mgr.List(ctx, filter)
+		for rtName, aux := range auxRuntimes {
+			auxAgents, auxErr := aux.Manager.List(ctx, filter)
 			if auxErr == nil && len(auxAgents) > 0 {
 				agents = auxAgents
 				runtimeName = rtName
+				matchedRuntime = aux.Runtime
 				slog.Debug("Agent found via auxiliary runtime", "slug", slug, "runtime", rtName)
 				break
 			}
@@ -925,6 +934,18 @@ func (s *Server) LookupAgent(ctx context.Context, slug string) (*AgentLookupResu
 	// Include K8s metadata if available
 	if ag.Kubernetes != nil {
 		result.Namespace = ag.Kubernetes.Namespace
+	}
+
+	// For kubernetes agents, include the Go K8s client for direct API access
+	// (avoids needing kubectl in PATH and reuses the broker's auth)
+	if runtimeName == "kubernetes" || runtimeName == "k8s" {
+		if matchedRuntime == nil {
+			matchedRuntime = s.runtime
+		}
+		if k8sRT, ok := matchedRuntime.(*scionrt.KubernetesRuntime); ok && k8sRT.Client != nil {
+			result.K8sConfig = k8sRT.Client.Config
+			result.K8sClientset = k8sRT.Client.Clientset
+		}
 	}
 
 	return result, nil

@@ -30,6 +30,11 @@ import (
 	"github.com/GoogleCloudPlatform/scion/pkg/wsprotocol"
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
 )
 
 const (
@@ -46,26 +51,28 @@ const (
 // available. After starting a container, sciontool init needs time to set up
 // the user, run pre-start hooks, and launch the tmux session. Without this
 // wait, an immediate attach would fail with "no sessions".
-func waitForTmuxSession(ctx context.Context, runtimeCmd, containerID, namespace string) error {
+func waitForTmuxSession(ctx context.Context, runtimeCmd, containerID, namespace string, k8sConfig *rest.Config, k8sClientset kubernetes.Interface) error {
 	ctx, cancel := context.WithTimeout(ctx, tmuxSessionWaitTimeout)
 	defer cancel()
 
 	ticker := time.NewTicker(tmuxSessionPollInterval)
 	defer ticker.Stop()
 
+	isK8s := runtimeCmd == "kubernetes" || runtimeCmd == "k8s"
+
 	for {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("timed out waiting for tmux session in container '%s' to become ready", containerID)
 		case <-ticker.C:
-			var cmd *exec.Cmd
-			if runtimeCmd == "kubernetes" || runtimeCmd == "k8s" {
-				args := buildKubectlExecArgs(namespace, containerID, []string{"tmux", "has-session", "-t", "scion"}, false)
-				cmd = exec.CommandContext(ctx, "kubectl", args...)
+			var checkErr error
+			if isK8s && k8sConfig != nil && k8sClientset != nil {
+				checkErr = k8sExecCheck(ctx, k8sConfig, k8sClientset, namespace, containerID, []string{"tmux", "has-session", "-t", "scion"})
 			} else {
-				cmd = exec.CommandContext(ctx, runtimeCmd, "exec", "--user", "scion", containerID, "tmux", "has-session", "-t", "scion")
+				cmd := exec.CommandContext(ctx, runtimeCmd, "exec", "--user", "scion", containerID, "tmux", "has-session", "-t", "scion")
+				checkErr = cmd.Run()
 			}
-			if err := cmd.Run(); err == nil {
+			if checkErr == nil {
 				return nil
 			}
 			slog.Debug("Waiting for tmux session", "containerID", containerID, "runtime", runtimeCmd)
@@ -73,20 +80,36 @@ func waitForTmuxSession(ctx context.Context, runtimeCmd, containerID, namespace 
 	}
 }
 
-// buildKubectlExecArgs constructs arguments for kubectl exec into a pod.
-// When interactive is true, -it flags are included (requires a PTY on stdin).
-func buildKubectlExecArgs(namespace, podName string, command []string, interactive bool) []string {
-	args := []string{"exec"}
-	if interactive {
-		args = append(args, "-it")
+// k8sExecCheck runs a non-interactive command in a pod container via the K8s
+// Go client API. Returns nil if the command exits 0.
+func k8sExecCheck(ctx context.Context, config *rest.Config, clientset kubernetes.Interface, namespace, podName string, command []string) error {
+	if namespace == "" {
+		namespace = "default"
 	}
-	args = append(args, podName, "-c", "agent")
-	if namespace != "" {
-		args = append(args, "-n", namespace)
+	req := clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(namespace).
+		SubResource("exec")
+
+	req.VersionedParams(&corev1.PodExecOptions{
+		Container: "agent",
+		Command:   command,
+		Stdin:     false,
+		Stdout:    true,
+		Stderr:    true,
+		TTY:       false,
+	}, scheme.ParameterCodec)
+
+	executor, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
+	if err != nil {
+		return err
 	}
-	args = append(args, "--")
-	args = append(args, command...)
-	return args
+
+	return executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
 }
 
 var ptyUpgrader = websocket.Upgrader{
@@ -149,7 +172,7 @@ func (s *Server) handleAgentAttach(w http.ResponseWriter, r *http.Request) {
 	slog.Info("Attach session started", "agentID", agentID, "containerID", containerID, "runtime", runtimeCmd)
 
 	// Start PTY session
-	session := newLocalPTYSession(ctx, agentID, containerID, runtimeCmd, result.Namespace, conn, cols, rows)
+	session := newLocalPTYSession(ctx, agentID, containerID, runtimeCmd, result.Namespace, conn, cols, rows, result.K8sConfig, result.K8sClientset)
 	if err := session.Run(); err != nil && err != io.EOF {
 		slog.Error("Attach session error", "agentID", agentID, "error", err)
 	}
@@ -192,32 +215,44 @@ type LocalPTYSession struct {
 	ptyMaster   *os.File
 	ptySlave    *os.File
 	writeMu     sync.Mutex
+
+	// K8s Go client for direct API exec
+	k8sConfig    *rest.Config
+	k8sClientset kubernetes.Interface
 }
 
 // newLocalPTYSession creates a new local PTY session.
-func newLocalPTYSession(ctx context.Context, agentID, containerID, runtimeCmd, namespace string, conn *websocket.Conn, cols, rows int) *LocalPTYSession {
+func newLocalPTYSession(ctx context.Context, agentID, containerID, runtimeCmd, namespace string, conn *websocket.Conn, cols, rows int, k8sConfig *rest.Config, k8sClientset kubernetes.Interface) *LocalPTYSession {
 	if runtimeCmd == "" {
 		runtimeCmd = "docker"
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	return &LocalPTYSession{
-		ctx:         ctx,
-		cancel:      cancel,
-		agentID:     agentID,
-		containerID: containerID,
-		runtimeCmd:  runtimeCmd,
-		namespace:   namespace,
-		conn:        conn,
-		cols:        cols,
-		rows:        rows,
+		ctx:          ctx,
+		cancel:       cancel,
+		agentID:      agentID,
+		containerID:  containerID,
+		runtimeCmd:   runtimeCmd,
+		namespace:    namespace,
+		conn:         conn,
+		cols:         cols,
+		rows:         rows,
+		k8sConfig:    k8sConfig,
+		k8sClientset: k8sClientset,
 	}
 }
 
 // Run starts the PTY session.
 func (s *LocalPTYSession) Run() error {
-	// Start docker exec with PTY
+	isK8s := (s.runtimeCmd == "kubernetes" || s.runtimeCmd == "k8s") && s.k8sConfig != nil && s.k8sClientset != nil
+
+	if isK8s {
+		return s.runK8sExec()
+	}
+
+	// Start docker/container exec with PTY
 	if err := s.startDockerExec(); err != nil {
-		return fmt.Errorf("failed to start docker exec: %w", err)
+		return fmt.Errorf("failed to start exec: %w", err)
 	}
 
 	defer func() {
@@ -248,49 +283,161 @@ func (s *LocalPTYSession) Run() error {
 	return err
 }
 
-// startDockerExec starts a docker exec session with tmux attach using a real PTY.
-func (s *LocalPTYSession) startDockerExec() error {
-	// Wait for the tmux session to be ready before attaching
-	if err := waitForTmuxSession(s.ctx, s.runtimeCmd, s.containerID, s.namespace); err != nil {
+// runK8sExec attaches to a K8s pod using the Go client's remotecommand API,
+// bridging the SPDY exec stream directly to the WebSocket connection.
+func (s *LocalPTYSession) runK8sExec() error {
+	namespace := s.namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	if err := waitForTmuxSession(s.ctx, s.runtimeCmd, s.containerID, namespace, s.k8sConfig, s.k8sClientset); err != nil {
 		return err
 	}
 
-	// We need BOTH:
-	// 1. -it flags: tell the runtime to allocate a TTY inside the container
-	// 2. pty.StartWithSize: allocate a PTY on the broker side for proper terminal handling
-	// The broker-side PTY handles I/O with the websocket, while the container-side TTY
-	// is required for tmux to function properly inside the container.
-	var execBin string
-	var args []string
+	req := s.k8sClientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(s.containerID).
+		Namespace(namespace).
+		SubResource("exec")
 
-	if s.runtimeCmd == "kubernetes" || s.runtimeCmd == "k8s" {
-		execBin = "kubectl"
-		args = buildKubectlExecArgs(s.namespace, s.containerID, []string{"tmux", "attach-session", "-t", "scion"}, true)
-	} else {
-		execBin = s.runtimeCmd
-		args = []string{
-			"exec", "-it",
-			"--user", "scion",
-			s.containerID,
-			"tmux", "attach-session", "-t", "scion",
-		}
+	req.VersionedParams(&corev1.PodExecOptions{
+		Container: "agent",
+		Command:   []string{"tmux", "attach-session", "-t", "scion"},
+		Stdin:     true,
+		Stdout:    true,
+		Stderr:    true,
+		TTY:       true,
+	}, scheme.ParameterCodec)
+
+	executor, err := remotecommand.NewSPDYExecutor(s.k8sConfig, "POST", req.URL())
+	if err != nil {
+		return fmt.Errorf("failed to create SPDY executor: %w", err)
 	}
 
-	s.cmd = exec.CommandContext(s.ctx, execBin, args...)
+	stdinReader, stdinWriter := io.Pipe()
+	stdoutReader, stdoutWriter := io.Pipe()
 
-	// Start with a real PTY - this provides proper terminal handling
+	// Build resize queue from WebSocket resize messages
+	resizeCh := make(chan [2]int, 4)
+	sizeQueue := &k8sSizeQueue{
+		resizeCh: resizeCh,
+		closeCh:  make(chan struct{}),
+		ctx:      s.ctx,
+		initial:  &remotecommand.TerminalSize{Width: uint16(s.cols), Height: uint16(s.rows)},
+	}
+
+	errCh := make(chan error, 3)
+
+	// Run SPDY executor
+	go func() {
+		execErr := executor.StreamWithContext(s.ctx, remotecommand.StreamOptions{
+			Stdin:             stdinReader,
+			Stdout:            stdoutWriter,
+			Stderr:            stdoutWriter,
+			Tty:               true,
+			TerminalSizeQueue: sizeQueue,
+		})
+		stdoutWriter.Close()
+		stdinReader.Close()
+		errCh <- execErr
+	}()
+
+	// Read from SPDY stdout, send to WebSocket
+	go func() {
+		buf := make([]byte, ptyMaxDataSize)
+		for {
+			n, readErr := stdoutReader.Read(buf)
+			if n > 0 {
+				msg := wsprotocol.NewPTYDataMessage(buf[:n])
+				if sendErr := s.writeToWebSocket(msg); sendErr != nil {
+					errCh <- sendErr
+					return
+				}
+			}
+			if readErr != nil {
+				errCh <- readErr
+				return
+			}
+		}
+	}()
+
+	// Read from WebSocket, write to SPDY stdin (and handle resize)
+	go func() {
+		for {
+			select {
+			case <-s.ctx.Done():
+				errCh <- s.ctx.Err()
+				return
+			default:
+			}
+
+			_, data, readErr := s.conn.ReadMessage()
+			if readErr != nil {
+				errCh <- readErr
+				return
+			}
+
+			env, parseErr := wsprotocol.ParseEnvelope(data)
+			if parseErr != nil {
+				continue
+			}
+
+			switch env.Type {
+			case wsprotocol.TypeData:
+				var msg wsprotocol.PTYDataMessage
+				if err := json.Unmarshal(data, &msg); err != nil {
+					continue
+				}
+				if _, writeErr := stdinWriter.Write(msg.Data); writeErr != nil {
+					errCh <- writeErr
+					return
+				}
+			case wsprotocol.TypeResize:
+				var msg wsprotocol.PTYResizeMessage
+				if err := json.Unmarshal(data, &msg); err != nil {
+					continue
+				}
+				select {
+				case resizeCh <- [2]int{msg.Cols, msg.Rows}:
+				default:
+				}
+			}
+		}
+	}()
+
+	err = <-errCh
+	s.cancel()
+	stdinWriter.Close()
+	stdoutReader.Close()
+	return err
+}
+
+// startDockerExec starts a docker exec session with tmux attach using a real PTY.
+func (s *LocalPTYSession) startDockerExec() error {
+	if err := waitForTmuxSession(s.ctx, s.runtimeCmd, s.containerID, s.namespace, nil, nil); err != nil {
+		return err
+	}
+
+	args := []string{
+		"exec", "-it",
+		"--user", "scion",
+		s.containerID,
+		"tmux", "attach-session", "-t", "scion",
+	}
+
+	s.cmd = exec.CommandContext(s.ctx, s.runtimeCmd, args...)
+
 	ptmx, err := pty.StartWithSize(s.cmd, &pty.Winsize{
 		Cols: uint16(s.cols),
 		Rows: uint16(s.rows),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to start %s exec with PTY: %w", execBin, err)
+		return fmt.Errorf("failed to start %s exec with PTY: %w", s.runtimeCmd, err)
 	}
 
-	// PTY master is used for both reading and writing
 	s.ptyMaster = ptmx
-	s.ptySlave = ptmx // Same fd for both directions with PTY
-
+	s.ptySlave = ptmx
 	return nil
 }
 
@@ -389,28 +536,44 @@ type StreamPTYHandler struct {
 	cmd         *exec.Cmd
 	ctx         context.Context
 	cancel      context.CancelFunc
+
+	// K8s Go client for direct API exec (avoids needing kubectl binary)
+	k8sConfig    *rest.Config
+	k8sClientset kubernetes.Interface
 }
 
 // NewStreamPTYHandler creates a handler for a PTY stream from the control channel.
-func NewStreamPTYHandler(client *ControlChannelClient, handler *StreamHandler, containerID, runtimeCmd, namespace string, cols, rows int) *StreamPTYHandler {
+func NewStreamPTYHandler(client *ControlChannelClient, handler *StreamHandler, containerID, runtimeCmd, namespace string, cols, rows int, k8sConfig *rest.Config, k8sClientset kubernetes.Interface) *StreamPTYHandler {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &StreamPTYHandler{
-		client:      client,
-		handler:     handler,
-		slug:        handler.slug,
-		containerID: containerID,
-		runtimeCmd:  runtimeCmd,
-		namespace:   namespace,
-		cols:        cols,
-		rows:        rows,
-		ctx:         ctx,
-		cancel:      cancel,
+		client:       client,
+		handler:      handler,
+		slug:         handler.slug,
+		containerID:  containerID,
+		runtimeCmd:   runtimeCmd,
+		namespace:    namespace,
+		cols:         cols,
+		rows:         rows,
+		ctx:          ctx,
+		cancel:       cancel,
+		k8sConfig:    k8sConfig,
+		k8sClientset: k8sClientset,
 	}
 }
 
 // Run starts the PTY stream handler.
 func (h *StreamPTYHandler) Run() error {
-	// Start docker exec with tmux attach
+	runtimeCmd := h.runtimeCmd
+	if runtimeCmd == "" {
+		runtimeCmd = "docker"
+	}
+	isK8s := (runtimeCmd == "kubernetes" || runtimeCmd == "k8s") && h.k8sConfig != nil && h.k8sClientset != nil
+
+	if isK8s {
+		return h.runK8sExec()
+	}
+
+	// Start docker/container exec with tmux attach
 	if err := h.startDockerExec(); err != nil {
 		return err
 	}
@@ -451,6 +614,140 @@ func (h *StreamPTYHandler) Run() error {
 	return err
 }
 
+// runK8sExec attaches to a K8s pod using the Go client's remotecommand API,
+// bridging the SPDY exec stream directly to the control channel stream.
+// No local PTY or kubectl binary is needed.
+func (h *StreamPTYHandler) runK8sExec() error {
+	namespace := h.namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	// Wait for tmux session readiness using Go client
+	if err := waitForTmuxSession(h.ctx, h.runtimeCmd, h.containerID, namespace, h.k8sConfig, h.k8sClientset); err != nil {
+		return err
+	}
+
+	req := h.k8sClientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(h.containerID).
+		Namespace(namespace).
+		SubResource("exec")
+
+	req.VersionedParams(&corev1.PodExecOptions{
+		Container: "agent",
+		Command:   []string{"tmux", "attach-session", "-t", "scion"},
+		Stdin:     true,
+		Stdout:    true,
+		Stderr:    true,
+		TTY:       true,
+	}, scheme.ParameterCodec)
+
+	executor, err := remotecommand.NewSPDYExecutor(h.k8sConfig, "POST", req.URL())
+	if err != nil {
+		return fmt.Errorf("failed to create SPDY executor: %w", err)
+	}
+
+	// Create a pipe for stdin: control channel data → pipe writer → SPDY stdin
+	stdinReader, stdinWriter := io.Pipe()
+
+	// Create a pipe for stdout: SPDY stdout → pipe writer → control channel
+	stdoutReader, stdoutWriter := io.Pipe()
+
+	// Build resize queue
+	sizeQueue := &k8sSizeQueue{
+		resizeCh: h.handler.resizeCh,
+		closeCh:  h.handler.closeCh,
+		ctx:      h.ctx,
+		initial:  &remotecommand.TerminalSize{Width: uint16(h.cols), Height: uint16(h.rows)},
+	}
+
+	errCh := make(chan error, 3)
+
+	// Run SPDY executor in background
+	go func() {
+		err := executor.StreamWithContext(h.ctx, remotecommand.StreamOptions{
+			Stdin:             stdinReader,
+			Stdout:            stdoutWriter,
+			Stderr:            stdoutWriter, // merge stderr into stdout
+			Tty:               true,
+			TerminalSizeQueue: sizeQueue,
+		})
+		stdoutWriter.Close()
+		stdinReader.Close()
+		errCh <- err
+	}()
+
+	// Read from SPDY stdout, send to control channel
+	go func() {
+		buf := make([]byte, ptyMaxDataSize)
+		for {
+			n, readErr := stdoutReader.Read(buf)
+			if n > 0 {
+				if sendErr := h.client.SendStreamData(h.handler.streamID, buf[:n]); sendErr != nil {
+					errCh <- sendErr
+					return
+				}
+			}
+			if readErr != nil {
+				errCh <- readErr
+				return
+			}
+		}
+	}()
+
+	// Read from control channel, write to SPDY stdin
+	go func() {
+		for {
+			select {
+			case <-h.ctx.Done():
+				errCh <- h.ctx.Err()
+				return
+			case <-h.handler.closeCh:
+				stdinWriter.Close()
+				errCh <- io.EOF
+				return
+			case data := <-h.handler.dataCh:
+				if _, writeErr := stdinWriter.Write(data); writeErr != nil {
+					errCh <- writeErr
+					return
+				}
+			}
+		}
+	}()
+
+	err = <-errCh
+	h.cancel()
+	stdinWriter.Close()
+	stdoutReader.Close()
+	return err
+}
+
+// k8sSizeQueue implements remotecommand.TerminalSizeQueue for K8s exec resize.
+type k8sSizeQueue struct {
+	resizeCh <-chan [2]int
+	closeCh  <-chan struct{}
+	ctx      context.Context
+	initial  *remotecommand.TerminalSize
+}
+
+func (q *k8sSizeQueue) Next() *remotecommand.TerminalSize {
+	// Return initial size on first call
+	if q.initial != nil {
+		size := q.initial
+		q.initial = nil
+		return size
+	}
+	select {
+	case <-q.ctx.Done():
+		return nil
+	case <-q.closeCh:
+		return nil
+	case size := <-q.resizeCh:
+		return &remotecommand.TerminalSize{Width: uint16(size[0]), Height: uint16(size[1])}
+	}
+}
+
 // handleResize listens for resize events and applies them to the PTY.
 func (h *StreamPTYHandler) handleResize() {
 	for {
@@ -475,42 +772,28 @@ func (h *StreamPTYHandler) handleResize() {
 	}
 }
 
-// startExec starts container exec with tmux attach using the configured runtime.
-// Uses a real PTY for proper terminal handling with Docker, Apple, and Kubernetes runtimes.
+// startDockerExec starts container exec with tmux attach using the configured runtime.
+// Uses a real PTY for proper terminal handling with Docker and Apple runtimes.
+// K8s runtimes are handled by runK8sExec() instead.
 func (h *StreamPTYHandler) startDockerExec() error {
-	// Use the configured runtime command (docker, container, kubernetes, etc.)
 	runtimeCmd := h.runtimeCmd
 	if runtimeCmd == "" {
 		runtimeCmd = "docker"
 	}
 
 	// Wait for the tmux session to be ready before attaching
-	if err := waitForTmuxSession(h.ctx, runtimeCmd, h.containerID, h.namespace); err != nil {
+	if err := waitForTmuxSession(h.ctx, runtimeCmd, h.containerID, h.namespace, nil, nil); err != nil {
 		return err
 	}
 
-	// We need BOTH:
-	// 1. -it flags: tell the container runtime to allocate a TTY inside the container
-	// 2. pty.StartWithSize: allocate a PTY on the broker side for proper terminal handling
-	// The broker-side PTY handles I/O with the websocket, while the container-side TTY
-	// is required for tmux to function properly inside the container.
-	var execBin string
-	var args []string
-
-	if runtimeCmd == "kubernetes" || runtimeCmd == "k8s" {
-		execBin = "kubectl"
-		args = buildKubectlExecArgs(h.namespace, h.containerID, []string{"tmux", "attach-session", "-t", "scion"}, true)
-	} else {
-		execBin = runtimeCmd
-		args = []string{
-			"exec", "-it",
-			"--user", "scion",
-			h.containerID,
-			"tmux", "attach-session", "-t", "scion",
-		}
+	args := []string{
+		"exec", "-it",
+		"--user", "scion",
+		h.containerID,
+		"tmux", "attach-session", "-t", "scion",
 	}
 
-	h.cmd = exec.CommandContext(h.ctx, execBin, args...)
+	h.cmd = exec.CommandContext(h.ctx, runtimeCmd, args...)
 
 	// Start with a real PTY - this provides proper terminal handling
 	ptmx, err := pty.StartWithSize(h.cmd, &pty.Winsize{
@@ -518,13 +801,11 @@ func (h *StreamPTYHandler) startDockerExec() error {
 		Rows: uint16(h.rows),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to start %s exec with PTY: %w", execBin, err)
+		return fmt.Errorf("failed to start %s exec with PTY: %w", runtimeCmd, err)
 	}
 
-	// PTY master is used for both reading and writing
 	h.ptyMaster = ptmx
-	h.ptySlave = ptmx // Same fd for both directions with PTY
-
+	h.ptySlave = ptmx
 	return nil
 }
 
@@ -583,8 +864,8 @@ func (h *StreamPTYHandler) Close() {
 }
 
 // handlePTYStreamWithAgent is called by the control channel to handle PTY streams.
-func (c *ControlChannelClient) handlePTYStreamWithAgent(handler *StreamHandler, cols, rows int, containerID, runtimeCmd, namespace string) {
-	ptyHandler := NewStreamPTYHandler(c, handler, containerID, runtimeCmd, namespace, cols, rows)
+func (c *ControlChannelClient) handlePTYStreamWithAgent(handler *StreamHandler, cols, rows int, containerID, runtimeCmd, namespace string, k8sConfig *rest.Config, k8sClientset kubernetes.Interface) {
+	ptyHandler := NewStreamPTYHandler(c, handler, containerID, runtimeCmd, namespace, cols, rows, k8sConfig, k8sClientset)
 	if err := ptyHandler.Run(); err != nil && err != io.EOF {
 		slog.Error("PTY stream error", "slug", handler.slug, "error", err)
 	}

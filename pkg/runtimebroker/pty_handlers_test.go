@@ -24,7 +24,7 @@ func TestWaitForTmuxSession_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	err := waitForTmuxSession(ctx, "false", "nonexistent-container", "")
+	err := waitForTmuxSession(ctx, "false", "nonexistent-container", "", nil, nil)
 	if err == nil {
 		t.Fatal("expected error when context is cancelled")
 	}
@@ -37,7 +37,7 @@ func TestWaitForTmuxSession_TimesOut(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	err := waitForTmuxSession(ctx, "false", "nonexistent-container", "")
+	err := waitForTmuxSession(ctx, "false", "nonexistent-container", "", nil, nil)
 	elapsed := time.Since(start)
 
 	if err == nil {
@@ -55,7 +55,7 @@ func TestWaitForTmuxSession_SucceedsImmediately(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	err := waitForTmuxSession(ctx, "true", "any-container", "")
+	err := waitForTmuxSession(ctx, "true", "any-container", "", nil, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {

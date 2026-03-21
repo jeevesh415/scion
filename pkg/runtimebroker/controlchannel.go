@@ -29,6 +29,8 @@ import (
 
 	"github.com/GoogleCloudPlatform/scion/pkg/apiclient"
 	"github.com/GoogleCloudPlatform/scion/pkg/wsprotocol"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 // ControlChannelConfig holds configuration for the control channel client.
@@ -76,6 +78,12 @@ type AgentLookupResult struct {
 	ContainerID string // Container/pod ID
 	RuntimeName string // Runtime that owns the agent (e.g., "docker", "kubernetes")
 	Namespace   string // Kubernetes namespace (empty for non-k8s runtimes)
+
+	// K8sConfig and K8sClientset are set for kubernetes agents so that
+	// PTY handlers can use the Go client (remotecommand) instead of
+	// shelling out to kubectl (which may not be in PATH or may lack auth).
+	K8sConfig    *rest.Config
+	K8sClientset kubernetes.Interface
 }
 
 // AgentLookup provides agent information for control channel operations.
@@ -664,7 +672,7 @@ func (c *ControlChannelClient) handlePTYStream(handler *StreamHandler, cols, row
 	}
 
 	// Start the actual PTY session
-	c.handlePTYStreamWithAgent(handler, cols, rows, result.ContainerID, runtimeCmd, result.Namespace)
+	c.handlePTYStreamWithAgent(handler, cols, rows, result.ContainerID, runtimeCmd, result.Namespace, result.K8sConfig, result.K8sClientset)
 
 	c.log.Info("PTY stream ended via control channel", "slug", handler.slug)
 
