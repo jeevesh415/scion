@@ -143,7 +143,7 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 		log.Printf("Server mode: workstation (binding to %s)", cfg.Hub.Host)
 	}
 	if enableDebug {
-		log.Println("Debug logging enabled")
+		slog.Debug("Debug logging enabled")
 		logOAuthDebug(cfg)
 	}
 

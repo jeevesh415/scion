@@ -17,7 +17,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -106,19 +106,20 @@ func containerBridgeEndpoint(hubEndpoint, runtimeName string) string {
 // logOAuthDebug logs OAuth configuration details for debugging.
 // Secrets are redacted to only show whether they are set.
 func logOAuthDebug(cfg *config.GlobalConfig) {
-	log.Println("[Debug] OAuth Configuration:")
-	log.Printf("[Debug]   CLI Google ClientID: %s", redactForDebug(cfg.OAuth.CLI.Google.ClientID))
-	log.Printf("[Debug]   CLI Google ClientSecret: %s", redactForDebug(cfg.OAuth.CLI.Google.ClientSecret))
-	log.Printf("[Debug]   CLI GitHub ClientID: %s", redactForDebug(cfg.OAuth.CLI.GitHub.ClientID))
-	log.Printf("[Debug]   CLI GitHub ClientSecret: %s", redactForDebug(cfg.OAuth.CLI.GitHub.ClientSecret))
-	log.Printf("[Debug]   Web Google ClientID: %s", redactForDebug(cfg.OAuth.Web.Google.ClientID))
-	log.Printf("[Debug]   Web Google ClientSecret: %s", redactForDebug(cfg.OAuth.Web.Google.ClientSecret))
-	log.Printf("[Debug]   Web GitHub ClientID: %s", redactForDebug(cfg.OAuth.Web.GitHub.ClientID))
-	log.Printf("[Debug]   Web GitHub ClientSecret: %s", redactForDebug(cfg.OAuth.Web.GitHub.ClientSecret))
-	log.Printf("[Debug]   Device Google ClientID: %s", redactForDebug(cfg.OAuth.Device.Google.ClientID))
-	log.Printf("[Debug]   Device Google ClientSecret: %s", redactForDebug(cfg.OAuth.Device.Google.ClientSecret))
-	log.Printf("[Debug]   Device GitHub ClientID: %s", redactForDebug(cfg.OAuth.Device.GitHub.ClientID))
-	log.Printf("[Debug]   Device GitHub ClientSecret: %s", redactForDebug(cfg.OAuth.Device.GitHub.ClientSecret))
+	slog.Debug("OAuth Configuration",
+		"cli_google_client_id", redactForDebug(cfg.OAuth.CLI.Google.ClientID),
+		"cli_google_client_secret", redactForDebug(cfg.OAuth.CLI.Google.ClientSecret),
+		"cli_github_client_id", redactForDebug(cfg.OAuth.CLI.GitHub.ClientID),
+		"cli_github_client_secret", redactForDebug(cfg.OAuth.CLI.GitHub.ClientSecret),
+		"web_google_client_id", redactForDebug(cfg.OAuth.Web.Google.ClientID),
+		"web_google_client_secret", redactForDebug(cfg.OAuth.Web.Google.ClientSecret),
+		"web_github_client_id", redactForDebug(cfg.OAuth.Web.GitHub.ClientID),
+		"web_github_client_secret", redactForDebug(cfg.OAuth.Web.GitHub.ClientSecret),
+		"device_google_client_id", redactForDebug(cfg.OAuth.Device.Google.ClientID),
+		"device_google_client_secret", redactForDebug(cfg.OAuth.Device.Google.ClientSecret),
+		"device_github_client_id", redactForDebug(cfg.OAuth.Device.GitHub.ClientID),
+		"device_github_client_secret", redactForDebug(cfg.OAuth.Device.GitHub.ClientSecret),
+	)
 }
 
 // redactForDebug returns a redacted version of a secret for debug logging.
