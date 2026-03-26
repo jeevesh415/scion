@@ -115,7 +115,7 @@ func (c *Codex) GetHarnessEmbedsFS() (embed.FS, string) {
 
 func (c *Codex) GetTelemetryEnv() map[string]string {
 	// Codex uses a TOML config file for telemetry, not env vars.
-	// File-based injection is handled via PropagateFiles.
+	// File-based injection is handled via ResolveAuth.
 	return nil
 }
 

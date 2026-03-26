@@ -1,6 +1,6 @@
 # Agent Auth Refactor
 
-## Status: Complete
+## Status: Final
 
 ## Problem Statement
 
@@ -83,8 +83,9 @@ type AuthConfig struct {
     // Google/Gemini auth
     GeminiAPIKey         string  // env: GEMINI_API_KEY
     GoogleAPIKey         string  // env: GOOGLE_API_KEY
-    GoogleAppCredentials string  // env/file: GOOGLE_APPLICATION_CREDENTIALS or ~/.config/gcloud/application_default_credentials.json
-    GoogleCloudProject   string  // env: GOOGLE_CLOUD_PROJECT, GCP_PROJECT, ANTHROPIC_VERTEX_PROJECT_ID
+    GoogleAppCredentials         string  // env/file: GOOGLE_APPLICATION_CREDENTIALS or ~/.config/gcloud/application_default_credentials.json
+    GoogleAppCredentialsExplicit bool    // true when value came from GOOGLE_APPLICATION_CREDENTIALS env var (vs file discovery)
+    GoogleCloudProject           string  // env: GOOGLE_CLOUD_PROJECT, GCP_PROJECT, ANTHROPIC_VERTEX_PROJECT_ID
     GoogleCloudRegion    string  // env: GOOGLE_CLOUD_REGION, CLOUD_ML_REGION, GOOGLE_CLOUD_LOCATION
     OAuthCreds           string  // file: ~/.gemini/oauth_creds.json
 
@@ -340,8 +341,8 @@ For file-type secrets, the Hub stores base64-encoded content and the runtime pro
 
 ### Step 7: Documentation ✅
 - Created `.design/agent-credentials.md` — technical design reference for the credential resolution architecture
-- Created `docs-site/src/content/docs/guides/agent-credentials.md` — user-facing guide for configuring agent credentials
-- Added "Agent Credentials" to docs-site sidebar under Developer Guide > How To
+- Created `docs-site/src/content/docs/advanced-local/agent-credentials.md` — user-facing guide for configuring agent credentials
+- Added "Agent Credentials" to docs-site sidebar under Advanced Local
 
 ## Decisions
 
