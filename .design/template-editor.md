@@ -305,19 +305,19 @@ The `locked` field on templates was introduced speculatively in earlier designs 
 
 *All phases below depend on [web-file-editor.md](./web-file-editor.md) Phases 1–2 being complete (shared file browser + core editor).*
 
-### Phase 1: Template File Browsing & Editing
+### Phase 1: Template File Browsing & Editing ✅
 
-- [ ] Add `GET /api/v1/templates/{templateId}/files` listing endpoint
-- [ ] Add `GET /api/v1/templates/{templateId}/files/{filePath}` content endpoint
-- [ ] Add `PUT /api/v1/templates/{templateId}/files/{filePath}` write endpoint
-- [ ] Add `DELETE /api/v1/templates/{templateId}/files/{filePath}` delete endpoint
-- [ ] Implement `TemplateFileBrowserDataSource` adapter
-- [ ] Add `scion-template-detail` page component with route `/groves/{id}/templates/{templateId}`
-- [ ] Breadcrumb navigation back to grove settings
-- [ ] Wire template list rows in grove settings to navigate to detail page
-- [ ] Integrate `scion-file-browser` and `scion-file-editor` on detail page
-- [ ] Gate edit/delete/upload on `update` capability
-- [ ] Content hash recomputation on save
+- [x] Add `GET /api/v1/templates/{templateId}/files` listing endpoint
+- [x] Add `GET /api/v1/templates/{templateId}/files/{filePath}` content endpoint
+- [x] Add `PUT /api/v1/templates/{templateId}/files/{filePath}` write endpoint
+- [x] Add `DELETE /api/v1/templates/{templateId}/files/{filePath}` delete endpoint
+- [x] Implement `TemplateFileBrowserDataSource` adapter
+- [x] Add `scion-template-detail` page component with route `/groves/{id}/templates/{templateId}`
+- [x] Breadcrumb navigation back to grove settings
+- [x] Wire template list rows in grove settings to navigate to detail page
+- [x] Integrate `scion-file-browser` and `scion-file-editor` on detail page
+- [x] Gate edit/delete/upload on `update` capability
+- [x] Content hash recomputation on save
 
 ### Phase 2: Upload & Polish
 
