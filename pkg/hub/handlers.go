@@ -7890,10 +7890,11 @@ func (s *Server) handleExistingAgent(
 		cleanupMode = "strict"
 	}
 
-	// Phase 1: Stale cleanup — agent is running/stopped/error and caller wants a real start.
+	// Phase 1: Stale cleanup — agent is running/error and caller wants a real start.
+	// Stopped agents are handled in Phase 3 (restart) to preserve their
+	// applied config (GCP identity, env, etc.) across stop/start cycles.
 	if !req.ProvisionOnly &&
 		(existingAgent.Phase == string(state.PhaseRunning) ||
-			existingAgent.Phase == string(state.PhaseStopped) ||
 			existingAgent.Phase == string(state.PhaseError)) {
 		dispatcher := s.GetDispatcher()
 		if dispatcher != nil && existingAgent.RuntimeBrokerID != "" {
@@ -7933,10 +7934,13 @@ func (s *Server) handleExistingAgent(
 		return existingAgentDeleted
 	}
 
-	// Phase 3: Restart — agent was provisioned/created but not yet started.
+	// Phase 3: Restart — agent was provisioned/created/stopped and needs to be (re)started.
+	// Stopped agents land here (rather than Phase 1) so their applied config
+	// — including GCP identity assignments — is preserved across stop/start.
 	if !req.ProvisionOnly &&
 		(existingAgent.Phase == string(state.PhaseCreated) ||
-			existingAgent.Phase == string(state.PhaseProvisioning)) {
+			existingAgent.Phase == string(state.PhaseProvisioning) ||
+			existingAgent.Phase == string(state.PhaseStopped)) {
 
 		// Recover RuntimeBrokerID from the freshly-resolved value if the stored one is empty.
 		if existingAgent.RuntimeBrokerID == "" && runtimeBrokerID != "" {
@@ -7965,7 +7969,8 @@ func (s *Server) handleExistingAgent(
 
 		// If the broker didn't set a running phase, default to running.
 		if existingAgent.Phase == string(state.PhaseCreated) ||
-			existingAgent.Phase == string(state.PhaseProvisioning) {
+			existingAgent.Phase == string(state.PhaseProvisioning) ||
+			existingAgent.Phase == string(state.PhaseStopped) {
 			existingAgent.Phase = string(state.PhaseRunning)
 		}
 		if err := s.store.UpdateAgent(ctx, existingAgent); err != nil {
