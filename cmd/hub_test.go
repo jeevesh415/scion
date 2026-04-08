@@ -320,6 +320,35 @@ func TestGetHubEndpointScope_FromFlag(t *testing.T) {
 	assert.Equal(t, "https://flag-hub.example.com", scope.Endpoint)
 }
 
+func TestParseJWTExpiry_ValidToken(t *testing.T) {
+	// Build a minimal JWT with exp claim (header.payload.signature)
+	// Header: {"alg":"HS256","typ":"JWT"}
+	header := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+	// Payload: {"exp":1700000000} -> 2023-11-14T22:13:20Z
+	payload := "eyJleHAiOjE3MDAwMDAwMDB9"
+	token := header + "." + payload + ".fakesig"
+
+	expiry := parseJWTExpiry(token)
+	assert.NotNil(t, expiry)
+	assert.Equal(t, int64(1700000000), expiry.Unix())
+}
+
+func TestParseJWTExpiry_NoExpClaim(t *testing.T) {
+	header := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+	// Payload: {"sub":"test"}
+	payload := "eyJzdWIiOiJ0ZXN0In0"
+	token := header + "." + payload + ".fakesig"
+
+	expiry := parseJWTExpiry(token)
+	assert.Nil(t, expiry)
+}
+
+func TestParseJWTExpiry_InvalidToken(t *testing.T) {
+	assert.Nil(t, parseJWTExpiry("not-a-jwt"))
+	assert.Nil(t, parseJWTExpiry(""))
+	assert.Nil(t, parseJWTExpiry("a.!!!invalid-base64!!!.c"))
+}
+
 func TestParseDefaultBranch_ParsesSymref(t *testing.T) {
 	// Real output from `git ls-remote --symref <url> HEAD`
 	output := "ref: refs/heads/main\tHEAD\n5f3c6e72abc123def456 HEAD\n"

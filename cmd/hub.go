@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -331,12 +332,46 @@ func init() {
 
 // authInfo describes the authentication method being used
 type authInfo struct {
-	Method     string // Human-readable description
-	MethodType string // Short type: "oauth", "bearer", "apikey", "devauth", "none"
-	Source     string // Where the credentials came from
-	IsDevAuth  bool   // Whether dev-auth is being used
-	HasOAuth   bool   // Whether OAuth credentials are present
-	OAuthCreds *credentials.HubCredentials
+	Method      string // Human-readable description
+	MethodType  string // Short type: "oauth", "bearer", "apikey", "devauth", "none"
+	Source      string // Where the credentials came from
+	IsDevAuth   bool   // Whether dev-auth is being used
+	HasOAuth    bool   // Whether OAuth credentials are present
+	OAuthCreds  *credentials.HubCredentials
+	TokenExpiry *time.Time // Expiry time extracted from agent JWT, nil if unknown
+}
+
+// parseJWTExpiry extracts the expiry time from a JWT without verifying the signature.
+// Returns nil if the token cannot be parsed or has no expiry claim.
+func parseJWTExpiry(tokenString string) *time.Time {
+	parts := strings.SplitN(tokenString, ".", 3)
+	if len(parts) != 3 {
+		return nil
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil
+	}
+	var claims struct {
+		Exp *float64 `json:"exp"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil || claims.Exp == nil {
+		return nil
+	}
+	t := time.Unix(int64(*claims.Exp), 0)
+	return &t
+}
+
+// printTokenExpiry prints the token expiry in a human-friendly format.
+func printTokenExpiry(expiry time.Time) {
+	now := time.Now()
+	if now.After(expiry) {
+		ago := now.Sub(expiry).Truncate(time.Minute)
+		fmt.Printf("Expires:    %s (EXPIRED %s ago)\n", expiry.Format("2006-01-02 15:04:05 MST"), ago)
+	} else {
+		remaining := expiry.Sub(now).Truncate(time.Minute)
+		fmt.Printf("Expires:    %s (in %s)\n", expiry.Format("2006-01-02 15:04:05 MST"), remaining)
+	}
 }
 
 // readAgentTokenFile reads the canonical agent token from ~/.scion/scion-token.
@@ -386,6 +421,7 @@ func getAuthInfo(settings *config.Settings, endpoint string) authInfo {
 			info.MethodType = "agent_token"
 			info.Source = "scion-token file"
 		}
+		info.TokenExpiry = parseJWTExpiry(token)
 		return info
 	}
 	if token := os.Getenv("SCION_AUTH_TOKEN"); token != "" {
@@ -399,6 +435,7 @@ func getAuthInfo(settings *config.Settings, endpoint string) authInfo {
 			info.MethodType = "agent_token"
 			info.Source = "SCION_AUTH_TOKEN env"
 		}
+		info.TokenExpiry = parseJWTExpiry(token)
 		return info
 	}
 
@@ -765,12 +802,18 @@ func runHubStatus(cmd *cobra.Command, args []string) error {
 					fmt.Printf("Expires:    %s\n", authInfo.OAuthCreds.ExpiresAt.Format(time.RFC3339))
 				}
 			}
+			if authInfo.TokenExpiry != nil {
+				printTokenExpiry(*authInfo.TokenExpiry)
+			}
 		}
 	} else {
 		// Can't reach server to verify - show local auth info only
 		fmt.Printf("Method:     %s (not verified - server unreachable)\n", authInfo.Method)
 		if authInfo.IsDevAuth {
 			fmt.Println("            (development mode - not for production use)")
+		}
+		if authInfo.TokenExpiry != nil {
+			printTokenExpiry(*authInfo.TokenExpiry)
 		}
 	}
 
