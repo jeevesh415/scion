@@ -500,6 +500,13 @@ func loadAndReconcileConfig(cmd *cobra.Command) (*config.GlobalConfig, error) {
 		cfg.Storage.LocalPath = storageDir
 	}
 
+	// Standalone broker in production mode: default to loopback when host
+	// is not explicitly set. The broker needs to start on loopback so that
+	// `scion broker register` can reach it locally before HMAC keys exist.
+	if productionMode && !cmd.Flags().Changed("host") && cfg.RuntimeBroker.Enabled && !enableHub {
+		cfg.RuntimeBroker.Host = "127.0.0.1"
+	}
+
 	// Fallback to legacy environment variable
 	if cfg.Storage.Bucket == "" && productionMode {
 		if val := os.Getenv("SCION_HUB_STORAGE_BUCKET"); val != "" {

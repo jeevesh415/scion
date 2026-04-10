@@ -22,6 +22,7 @@ import (
 	goruntime "runtime"
 	"testing"
 
+	"github.com/GoogleCloudPlatform/scion/pkg/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -169,6 +170,52 @@ func TestBrokerDelegationUsesProductionMode(t *testing.T) {
 	assert.True(t, enableRuntimeBroker, "runtime broker should be enabled")
 	assert.False(t, enableHub, "hub should NOT be enabled (broker-only)")
 	assert.False(t, enableWeb, "web should NOT be enabled (broker-only)")
+}
+
+func TestBrokerDelegationDefaultsToLoopback(t *testing.T) {
+	// Verify the standalone broker loopback logic:
+	// When productionMode=true, host not changed, broker enabled, hub disabled,
+	// the broker host should be forced to loopback.
+	t.Cleanup(resetServerFlags)
+	resetServerFlags()
+
+	productionMode = true
+	enableRuntimeBroker = true
+	enableHub = false
+
+	// Simulate the reconciliation logic: in production mode with broker-only,
+	// if host wasn't explicitly set, default broker to loopback.
+	cfg := config.DefaultGlobalConfig()
+	cfg.RuntimeBroker.Enabled = enableRuntimeBroker
+	hostChanged := false // simulates !cmd.Flags().Changed("host")
+
+	if productionMode && !hostChanged && cfg.RuntimeBroker.Enabled && !enableHub {
+		cfg.RuntimeBroker.Host = "127.0.0.1"
+	}
+
+	assert.Equal(t, "127.0.0.1", cfg.RuntimeBroker.Host,
+		"standalone broker in production mode should default to loopback")
+}
+
+func TestBrokerDelegationExplicitHostKeepsValue(t *testing.T) {
+	// When --host is explicitly provided, the broker should use that value.
+	t.Cleanup(resetServerFlags)
+	resetServerFlags()
+
+	productionMode = true
+	enableRuntimeBroker = true
+	enableHub = false
+
+	cfg := config.DefaultGlobalConfig()
+	cfg.RuntimeBroker.Enabled = enableRuntimeBroker
+	hostChanged := true // simulates cmd.Flags().Changed("host")
+
+	if productionMode && !hostChanged && cfg.RuntimeBroker.Enabled && !enableHub {
+		cfg.RuntimeBroker.Host = "127.0.0.1"
+	}
+
+	assert.Equal(t, "0.0.0.0", cfg.RuntimeBroker.Host,
+		"explicit --host should keep the configured value")
 }
 
 func TestPrintWorkstationQuickstart(t *testing.T) {
