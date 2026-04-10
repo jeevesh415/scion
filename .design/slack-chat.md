@@ -128,12 +128,11 @@ oauth_config:
       - chat:write
       - chat:write.customize    # Required for per-agent username/avatar
       - commands
-      - groups:read
       - im:read
       - im:write
-      - mpim:read
       - users:read
       - users:read.email        # Required for email-based identity mapping
+      # groups:read and mpim:read omitted — private channels deferred to a future phase
 
 settings:
   event_subscriptions:
@@ -853,7 +852,29 @@ func (a *Adapter) SendMessage(ctx context.Context, req chatapp.SendMessageReques
 }
 ```
 
-This makes each agent appear as a distinct "user" in the channel — with its own name and avatar — rather than all messages coming from a single "Scion" bot. The `agentIconURL()` function generates a deterministic avatar URL based on the agent slug (e.g., using a hash-based avatar service or a configurable icon mapping).
+This makes each agent appear as a distinct "user" in the channel — with its own name and avatar — rather than all messages coming from a single "Scion" bot.
+
+#### Agent Icon Generation
+
+Agent avatars are generated via [RoboHash](https://robohash.org/), which produces deterministic robot-themed images from any input string. The agent slug is used as the seed, so the same agent always gets the same avatar across sessions and channels.
+
+The implementation is behind an `IconProvider` abstraction so the source can be swapped later (e.g., to a Hub-managed avatar endpoint or a different generator):
+
+```go
+// IconProvider generates avatar URLs for agents.
+type IconProvider interface {
+    IconURL(agentSlug string) string
+}
+
+// robohashProvider generates avatars via robohash.org.
+type robohashProvider struct{}
+
+func (r *robohashProvider) IconURL(agentSlug string) string {
+    return fmt.Sprintf("https://robohash.org/%s?set=set1&size=48x48", url.PathEscape(agentSlug))
+}
+```
+
+The adapter takes an `IconProvider` at construction time, defaulting to `robohashProvider`.
 
 ### Identity in Notifications
 
@@ -928,12 +949,31 @@ The `/scion message --thread <thread-id>` command works the same way: the thread
 Slack threads can optionally broadcast a reply to the main channel. This is useful for important notifications that shouldn't be buried in a thread:
 
 ```go
-if req.ThreadID != "" && req.BroadcastReply {
+if req.ThreadID != "" && shouldBroadcast {
     opts = append(opts, slackapi.MsgOptionBroadcast())
 }
 ```
 
-This is a Slack-specific enhancement not available in Google Chat. The `SendMessageRequest` type may need a `BroadcastReply bool` field, or this can be controlled by the adapter based on the notification activity type (e.g., always broadcast `ERROR` and `WAITING_FOR_INPUT` notifications).
+This is a Slack-specific enhancement not available in Google Chat. The broadcast policy is **configurable per-channel** via a slash command:
+
+```
+/scion broadcast ERROR WAITING_FOR_INPUT    # broadcast these activity types
+/scion broadcast all                         # broadcast all notifications
+/scion broadcast none                        # never broadcast (default)
+/scion broadcast                             # show current setting
+```
+
+The setting is stored in a new `space_settings` table in SQLite (see State Management below). When a notification arrives for a threaded conversation, the adapter checks the channel's broadcast policy against the notification's activity type to decide whether to add `MsgOptionBroadcast()`.
+
+```go
+type SpaceSettings struct {
+    SpaceID            string
+    Platform           string
+    BroadcastActivities string // comma-separated: "ERROR,WAITING_FOR_INPUT", "all", or ""
+}
+```
+
+The `broadcast` subcommand is added to the command router alongside `link`/`unlink`. Only channel admins or grove admins can change the broadcast policy for a space.
 
 ---
 
@@ -1112,6 +1152,7 @@ Most commands should respond publicly (visible to all channel members). Some com
 | `help` | Ephemeral | Only the invoker needs to see it |
 | `info` | Ephemeral | Contains user-specific registration info |
 | `register` / `unregister` | Ephemeral | User-specific auth flow |
+| `broadcast` | Ephemeral | Channel admin configuration |
 | All others | Public | Team should see agent operations |
 
 This is controlled by the adapter when translating `EventResponse` to Slack API calls.
@@ -1284,6 +1325,31 @@ func (r *CommandRouter) messengerFor(platform string) Messenger {
 }
 ```
 
+### 5. State Schema Extension (state.go)
+
+A new `space_settings` table stores per-channel configuration such as broadcast policy:
+
+```sql
+CREATE TABLE space_settings (
+    space_id             TEXT NOT NULL,
+    platform             TEXT NOT NULL,
+    broadcast_activities TEXT NOT NULL DEFAULT '',  -- Comma-separated: "ERROR,WAITING_FOR_INPUT", "all", or ""
+    PRIMARY KEY (space_id, platform)
+);
+```
+
+The `Store` gains `GetSpaceSettings()`, `SetSpaceSettings()`, and `DeleteSpaceSettings()` methods. The settings are deleted automatically when a space is unlinked.
+
+### 6. Command Router: `/scion broadcast` (commands.go)
+
+A new `cmdBroadcast()` handler is added to the command router:
+
+- With arguments: parses activity types (e.g., `ERROR WAITING_FOR_INPUT`) or keywords (`all`, `none`) and saves to `space_settings`
+- Without arguments: displays the current broadcast policy for the space
+- Requires the user to be a grove admin or the Slack channel manager
+
+This command is platform-agnostic in the router but only has practical effect for Slack (Google Chat does not support thread broadcast). The router stores the setting regardless of platform; the adapter decides whether to act on it.
+
 ---
 
 ## Rate Limiting & API Constraints
@@ -1349,10 +1415,11 @@ Slack provides a sandbox workspace for app development. Use Socket Mode for loca
 ### Phase 3b: Dynamic Identity & Threading
 
 - [ ] Implement per-agent username/avatar via `chat:write.customize`
-- [ ] Add `agentIconURL()` function (deterministic avatar generation)
+- [ ] Implement `IconProvider` abstraction with `robohashProvider` default
 - [ ] Implement Socket Mode support as an alternative to HTTP
 - [ ] Thread ID (`thread_ts`) round-trip through `SendMessageRequest` → `ChatEvent`
-- [ ] Broadcast reply support for critical notifications
+- [ ] Add `space_settings` table and `/scion broadcast` command for per-channel broadcast policy
+- [ ] Broadcast reply support based on per-channel activity type configuration
 
 ### Phase 3c: App Home & Polish
 
@@ -1384,10 +1451,12 @@ Slack provides a sandbox workspace for app development. Use Socket Mode for loca
 
 8. **Ephemeral responses:** `help`, `info`, `register`, and `unregister` responses are sent as ephemeral messages (visible only to the invoker). All other command responses are public.
 
+9. **Agent icon generation:** Use [RoboHash](https://robohash.org/) for deterministic robot-themed agent avatars, seeded by agent slug. The implementation is behind an `IconProvider` abstraction so the source can be swapped later without changing the adapter.
+
+10. **Broadcast reply policy:** Configurable per-channel via `/scion broadcast <activity-types>`. Channel owners/grove admins can set which notification activity types broadcast from threads to the main channel. Defaults to none (no broadcast). Stored in a `space_settings` table in SQLite.
+
+11. **Channel type restrictions:** Public channels and DMs only for MVP. Private channels (`groups:read`, `mpim:read` scopes) are deferred to a future phase. DMs to the bot work via `message.im` and are sufficient for user-specific interactions like registration.
+
 ## Open Questions
 
-1. **Agent icon generation:** Should per-agent avatars use a deterministic hash-based service (e.g., robohash, dicebear), a configurable icon URL template in the app config, or a Hub-managed avatar endpoint? The choice affects whether icons are consistent across platforms and deployable without external services.
-
-2. **Broadcast reply policy:** Which notification activity types should broadcast a thread reply to the main channel? Candidates: `ERROR`, `WAITING_FOR_INPUT`. Should this be configurable per-space or hardcoded?
-
-3. **Channel type restrictions:** Should the bot only work in public channels, or also support private channels and group DMs? Private channels require additional scopes (`groups:read`). DMs to the bot already work via `message.im`.
+_None at this time._
