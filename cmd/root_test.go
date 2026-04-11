@@ -129,6 +129,47 @@ func TestFormatFlagCheck(t *testing.T) {
 	}
 }
 
+func TestHubAuthLoginDoesNotRequireImageRegistry(t *testing.T) {
+	origGlobalMode := globalMode
+	origGrovePath := grovePath
+	origProfile := profile
+	origOutputFormat := outputFormat
+	origNoHub := noHub
+	origHubEndpoint := hubEndpoint
+	origNonInteractive := nonInteractive
+	origAutoConfirm := autoConfirm
+	defer func() {
+		globalMode = origGlobalMode
+		grovePath = origGrovePath
+		profile = origProfile
+		outputFormat = origOutputFormat
+		noHub = origNoHub
+		hubEndpoint = origHubEndpoint
+		nonInteractive = origNonInteractive
+		autoConfirm = origAutoConfirm
+	}()
+
+	t.Setenv("SCION_HOST_UID", "")
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	if err := os.MkdirAll(filepath.Join(tmpHome, ".scion"), 0755); err != nil {
+		t.Fatalf("failed to create test global scion dir: %v", err)
+	}
+
+	globalMode = true
+	grovePath = ""
+	profile = ""
+	outputFormat = ""
+	noHub = false
+	hubEndpoint = "http://127.0.0.1:8080"
+	nonInteractive = true
+	autoConfirm = true
+
+	err := rootCmd.PersistentPreRunE(hubAuthLoginCmd, []string{})
+	assert.NoError(t, err)
+}
+
 func TestDevAuthWarning(t *testing.T) {
 	// Save and restore original flags
 	origNoHub := noHub

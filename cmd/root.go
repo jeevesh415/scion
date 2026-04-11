@@ -145,7 +145,10 @@ return an error instead of blocking.`,
 		case "config", "doctor":
 			requiresRegistry = false
 		}
-		if parentName == "config" {
+		if commandInSubtree(cmd, "config") {
+			requiresRegistry = false
+		}
+		if commandInSubtree(cmd, "hub") {
 			requiresRegistry = false
 		}
 		if requiresRegistry && config.IsHubContext() {
@@ -196,6 +199,15 @@ func Execute() {
 		}
 		os.Exit(1)
 	}
+}
+
+func commandInSubtree(cmd *cobra.Command, name string) bool {
+	for current := cmd; current != nil; current = current.Parent() {
+		if current.Name() == name {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {
