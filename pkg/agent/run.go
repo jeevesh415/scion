@@ -93,12 +93,19 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 		ctx = api.ContextWithGitClone(ctx, opts.GitClone)
 	}
 
-	// Build inline config for GetAgent, ensuring --harness-auth is applied
-	// before harness Provision() runs (which reads auth_selectedType to decide
-	// which env vars to inject).
+	// Build inline config for GetAgent by merging the dispatch InlineConfig
+	// (which carries volumes, env, image, etc. from templates/harness configs)
+	// with any --harness-auth override. Without this merge, custom volumes
+	// from hub-dispatched agents are silently dropped.
 	var startInlineConfig *api.ScionConfig
+	if opts.InlineConfig != nil {
+		startInlineConfig = opts.InlineConfig
+	}
 	if opts.HarnessAuth != "" {
-		startInlineConfig = &api.ScionConfig{AuthSelectedType: opts.HarnessAuth}
+		if startInlineConfig == nil {
+			startInlineConfig = &api.ScionConfig{}
+		}
+		startInlineConfig.AuthSelectedType = opts.HarnessAuth
 	}
 
 	util.Debugf("Start: calling GetAgent name=%s template=%q image=%q harnessConfig=%q grovePath=%q profile=%q",
