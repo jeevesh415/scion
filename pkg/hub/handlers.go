@@ -3201,12 +3201,7 @@ func (s *Server) cloneSharedWorkspaceGrove(ctx context.Context, grove *store.Gro
 	// Build clone URL from the grove's git remote.
 	// The clone-url label may be an explicit override (e.g. local path for testing).
 	// Only convert to HTTPS if the URL looks like a remote git URL.
-	cloneURL := grove.Labels["scion.dev/clone-url"]
-	if cloneURL == "" {
-		cloneURL = util.ToHTTPSCloneURL(grove.GitRemote)
-	} else if util.IsGitURL(cloneURL) {
-		cloneURL = util.ToHTTPSCloneURL(cloneURL)
-	}
+	cloneURL := resolveCloneURL(grove.Labels["scion.dev/clone-url"], grove.GitRemote)
 
 	defaultBranch := grove.Labels["scion.dev/default-branch"]
 	if defaultBranch == "" {
@@ -7862,15 +7857,7 @@ func (s *Server) populateAgentConfig(agent *store.Agent, grove *store.Grove, res
 	// Populate GitClone config for git-anchored groves (per-agent clone mode).
 	// Shared-workspace git groves skip clone — agents mount the shared workspace instead.
 	if grove != nil && grove.GitRemote != "" && !grove.IsSharedWorkspace() {
-		cloneURL := grove.Labels["scion.dev/clone-url"]
-		if cloneURL == "" {
-			cloneURL = "https://" + grove.GitRemote + ".git"
-		} else {
-			// Normalize: the label may have been stored without a scheme
-			// (e.g. "github.com/org/repo" from the web UI). Ensure it is
-			// always a valid HTTPS clone URL.
-			cloneURL = util.ToHTTPSCloneURL(cloneURL)
-		}
+		cloneURL := resolveCloneURL(grove.Labels["scion.dev/clone-url"], grove.GitRemote)
 		defaultBranch := grove.Labels["scion.dev/default-branch"]
 		if defaultBranch == "" {
 			defaultBranch = "main"
