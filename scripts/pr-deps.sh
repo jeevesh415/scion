@@ -39,18 +39,10 @@
 
 set -euo pipefail
 
-# Require bash 4+ for associative arrays
-if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
-    echo "Error: bash 4+ is required (found bash ${BASH_VERSION})." >&2
-    echo "On macOS, install via: brew install bash" >&2
-    exit 1
-fi
-
 # --- Colors ---
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -96,47 +88,28 @@ Examples:
 EOF
 }
 
-# --- Color helpers ---
-color() {
-    if [[ "$NO_COLOR" == true ]]; then
-        echo -n "$2"
-    else
-        echo -ne "${1}${2}${RESET}"
-    fi
-}
-
-println_color() {
-    if [[ "$NO_COLOR" == true ]]; then
-        echo "$2"
-    else
-        echo -e "${1}${2}${RESET}"
-    fi
-}
-
 # --- Dependency checks ---
 check_deps() {
-    local missing=()
+    local missing=""
     if ! command -v gh &>/dev/null; then
-        missing+=("gh (GitHub CLI)")
+        missing="$missing  - gh (GitHub CLI)\n"
     fi
     if ! command -v jq &>/dev/null; then
-        missing+=("jq")
+        missing="$missing  - jq\n"
     fi
-    if [[ ${#missing[@]} -gt 0 ]]; then
+    if [ -n "$missing" ]; then
         echo "Error: missing required dependencies:" >&2
-        for dep in "${missing[@]}"; do
-            echo "  - $dep" >&2
-        done
+        echo -e "$missing" >&2
         exit 1
     fi
 }
 
 # --- Resolve defaults ---
 resolve_author() {
-    if [[ -n "$AUTHOR" ]]; then
+    if [ -n "$AUTHOR" ]; then
         return
     fi
-    if [[ "$ALL_AUTHORS" == true ]]; then
+    if [ "$ALL_AUTHORS" = true ]; then
         return
     fi
     AUTHOR=$(gh api user --jq '.login' 2>/dev/null) || {
@@ -146,9 +119,10 @@ resolve_author() {
 }
 
 resolve_base_branch() {
-    if [[ -n "$BASE_BRANCH" ]]; then
+    if [ -n "$BASE_BRANCH" ]; then
         return
     fi
+    # shellcheck disable=SC2086
     BASE_BRANCH=$(gh repo view $REPO_FLAG --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null) || {
         BASE_BRANCH="main"
         echo "Warning: could not detect default branch, assuming 'main'." >&2
@@ -156,13 +130,13 @@ resolve_base_branch() {
 }
 
 # --- Fetch PR data ---
-# Stores raw JSON in PR_JSON global
 fetch_prs() {
     local author_filter=""
-    if [[ -n "$AUTHOR" ]]; then
+    if [ -n "$AUTHOR" ]; then
         author_filter="--author $AUTHOR"
     fi
 
+    # shellcheck disable=SC2086
     PR_JSON=$(gh pr list $REPO_FLAG $author_filter \
         --state open \
         --json number,title,headRefName,baseRefName,author \
@@ -172,336 +146,248 @@ fetch_prs() {
     }
 
     PR_COUNT=$(echo "$PR_JSON" | jq 'length')
-    if [[ "$PR_COUNT" -eq 0 ]]; then
+    if [ "$PR_COUNT" -eq 0 ]; then
         local scope="your"
-        [[ "$ALL_AUTHORS" == true ]] && scope="any"
-        [[ -n "$AUTHOR" ]] && scope="$AUTHOR's"
+        [ "$ALL_AUTHORS" = true ] && scope="any"
+        [ -n "$AUTHOR" ] && scope="$AUTHOR's"
         echo "No open PRs found for $scope account." >&2
         exit 0
     fi
 }
 
-# --- Build dependency structures ---
-# Populates associative arrays for the graph
-#   PR_NUMBERS[i]       = PR number
-#   PR_TITLES[number]   = PR title
-#   PR_HEADS[number]    = head branch name
-#   PR_BASES[number]    = base branch name
-#   PR_AUTHORS[number]  = PR author login
-#   CHILDREN[branch]    = space-separated list of PR numbers whose base is this branch
-#   HEAD_TO_PR[branch]  = PR number whose head is this branch
-declare -A PR_TITLES PR_HEADS PR_BASES PR_AUTHORS CHILDREN HEAD_TO_PR
-declare -a PR_NUMBERS
-
-build_graph() {
-    local count
-    count=$(echo "$PR_JSON" | jq 'length')
-
-    for ((i = 0; i < count; i++)); do
-        local num head base title author
-        num=$(echo "$PR_JSON" | jq -r ".[$i].number")
-        head=$(echo "$PR_JSON" | jq -r ".[$i].headRefName")
-        base=$(echo "$PR_JSON" | jq -r ".[$i].baseRefName")
-        title=$(echo "$PR_JSON" | jq -r ".[$i].title")
-        author=$(echo "$PR_JSON" | jq -r ".[$i].author.login")
-
-        PR_NUMBERS+=("$num")
-        PR_TITLES[$num]="$title"
-        PR_HEADS[$num]="$head"
-        PR_BASES[$num]="$base"
-        PR_AUTHORS[$num]="$author"
-        HEAD_TO_PR[$head]="$num"
-
-        # Record this PR as a child of its base branch
-        if [[ -n "${CHILDREN[$base]+x}" ]]; then
-            CHILDREN[$base]="${CHILDREN[$base]} $num"
-        else
-            CHILDREN[$base]="$num"
-        fi
-    done
-}
-
-# --- graph command: ASCII tree ---
-render_ascii_tree() {
-    local branch="$1"
-    local prefix="$2"
-    local is_last="$3"
-
-    local children_str="${CHILDREN[$branch]:-}"
-    if [[ -z "$children_str" ]]; then
-        return
-    fi
-
-    # Convert to array
-    local -a children
-    read -ra children <<< "$children_str"
-    local total=${#children[@]}
-
-    for ((idx = 0; idx < total; idx++)); do
-        local num="${children[$idx]}"
-        local head="${PR_HEADS[$num]}"
-        local title="${PR_TITLES[$num]}"
-        local author_str=""
-        if [[ "$ALL_AUTHORS" == true ]]; then
-            author_str=" ${DIM}[${PR_AUTHORS[$num]}]${RESET}"
-            [[ "$NO_COLOR" == true ]] && author_str=" [${PR_AUTHORS[$num]}]"
-        fi
-
-        local connector="├── "
-        local child_prefix="${prefix}│   "
-        if [[ $idx -eq $((total - 1)) ]]; then
-            connector="└── "
-            child_prefix="${prefix}    "
-        fi
-
-        if [[ "$NO_COLOR" == true ]]; then
-            echo "${prefix}${connector}#${num} ${head} (${title})${author_str}"
-        else
-            echo -e "${prefix}${connector}${CYAN}#${num}${RESET} ${BOLD}${head}${RESET} ${DIM}(${title})${RESET}${author_str}"
-        fi
-
-        # Recurse into children of this PR's head branch
-        render_ascii_tree "$head" "$child_prefix" "false"
-    done
-}
-
+# --- graph command: ASCII tree (rendered entirely in jq) ---
 cmd_graph() {
-    if [[ "$DOT_OUTPUT" == true ]]; then
+    if [ "$DOT_OUTPUT" = true ]; then
         cmd_graph_dot
         return
     fi
 
     local scope_label="$AUTHOR"
-    [[ "$ALL_AUTHORS" == true ]] && scope_label="all authors"
+    [ "$ALL_AUTHORS" = true ] && scope_label="all authors"
 
-    println_color "$BOLD" "PR Dependency Graph (${scope_label})"
+    if [ "$NO_COLOR" = true ]; then
+        echo "PR Dependency Graph (${scope_label})"
+    else
+        echo -e "${BOLD}PR Dependency Graph (${scope_label})${RESET}"
+    fi
     echo ""
 
-    # Find root branches (bases that are not any PR's head, typically the default branch)
-    local -a roots=()
-    for num in "${PR_NUMBERS[@]}"; do
-        local base="${PR_BASES[$num]}"
-        # If no PR has this base as its head, it's a root
-        if [[ -z "${HEAD_TO_PR[$base]+x}" ]]; then
-            # Add to roots if not already present
-            local found=false
-            for r in "${roots[@]+"${roots[@]}"}"; do
-                if [[ "$r" == "$base" ]]; then
-                    found=true
-                    break
-                fi
-            done
-            if [[ "$found" == false ]]; then
-                roots+=("$base")
-            fi
-        fi
-    done
+    # jq does all the tree-building and rendering
+    echo "$PR_JSON" | jq -r --arg base "$BASE_BRANCH" --arg no_color "$NO_COLOR" --arg all_authors "$ALL_AUTHORS" '
+        # Build lookup: branch -> list of PR objects whose base is that branch
+        def children_of(branch):
+            [ .[] | select(.baseRefName == branch) ];
 
-    # Render each root tree
-    for root in "${roots[@]}"; do
-        if [[ "$NO_COLOR" == true ]]; then
-            echo "$root"
-        else
-            echo -e "${GREEN}${BOLD}${root}${RESET}"
-        fi
-        render_ascii_tree "$root" "" "true"
-        echo ""
-    done
+        # Collect all head branch names
+        ( [ .[].headRefName ] ) as $heads |
+
+        # Find root bases: bases that are not any PRs head
+        ( [ .[].baseRefName ] | unique | map(select(. as $b | $heads | index($b) | not)) ) as $roots |
+
+        # Recursive tree renderer
+        def render(branch; prefix; prs):
+            (prs | children_of(branch)) as $kids |
+            if ($kids | length) == 0 then empty
+            else
+                $kids | to_entries[] |
+                .key as $idx |
+                .value as $pr |
+                (if $idx == (($kids | length) - 1) then "└── " else "├── " end) as $connector |
+                (if $idx == (($kids | length) - 1) then (prefix + "    ") else (prefix + "│   ") end) as $child_prefix |
+                (if $all_authors == "true" then " [\($pr.author.login)]" else "" end) as $author_str |
+                (if $no_color == "true" then
+                    "\(prefix)\($connector)#\($pr.number) \($pr.headRefName) (\($pr.title))\($author_str)"
+                else
+                    "\(prefix)\($connector)\u001b[0;36m#\($pr.number)\u001b[0m \u001b[1m\($pr.headRefName)\u001b[0m \u001b[2m(\($pr.title))\u001b[0m\($author_str)"
+                end),
+                render($pr.headRefName; $child_prefix; prs)
+            end;
+
+        # Render each root
+        . as $prs |
+        $roots[] |
+        (if $no_color == "true" then . else "\u001b[0;32m\u001b[1m\(.)\u001b[0m" end),
+        render(.; ""; $prs),
+        ""
+    '
 }
 
 cmd_graph_dot() {
-    echo "digraph pr_dependencies {"
-    echo "  rankdir=LR;"
-    echo "  node [shape=box, style=rounded];"
-    echo ""
-
-    # Add nodes
-    for num in "${PR_NUMBERS[@]}"; do
-        local head="${PR_HEADS[$num]}"
-        local title="${PR_TITLES[$num]}"
-        # Escape quotes in title
-        title="${title//\"/\\\"}"
-        echo "  \"${head}\" [label=\"#${num}: ${title}\"];"
-    done
-    echo ""
-
-    # Add the default branch node
-    echo "  \"${BASE_BRANCH}\" [label=\"${BASE_BRANCH}\", style=\"filled,rounded\", fillcolor=\"#90EE90\"];"
-    echo ""
-
-    # Add edges
-    for num in "${PR_NUMBERS[@]}"; do
-        local head="${PR_HEADS[$num]}"
-        local base="${PR_BASES[$num]}"
-        echo "  \"${base}\" -> \"${head}\";"
-    done
-
-    echo "}"
+    echo "$PR_JSON" | jq -r --arg base "$BASE_BRANCH" '
+        "digraph pr_dependencies {",
+        "  rankdir=LR;",
+        "  node [shape=box, style=rounded];",
+        "",
+        # PR nodes
+        (.[] | "  \"\(.headRefName)\" [label=\"#\(.number): \(.title | gsub("\""; "\\\""))\"];"),
+        "",
+        # Default branch node
+        "  \"\($base)\" [label=\"\($base)\", style=\"filled,rounded\", fillcolor=\"#90EE90\"];",
+        "",
+        # Edges
+        (.[] | "  \"\(.baseRefName)\" -> \"\(.headRefName)\";"),
+        "}"
+    '
 }
 
-# --- order command: topological sort ---
+# --- order command: topological sort (in jq) ---
 cmd_order() {
     local scope_label="$AUTHOR"
-    [[ "$ALL_AUTHORS" == true ]] && scope_label="all authors"
+    [ "$ALL_AUTHORS" = true ] && scope_label="all authors"
 
-    println_color "$BOLD" "Recommended Merge Order (${scope_label})"
+    if [ "$NO_COLOR" = true ]; then
+        echo "Recommended Merge Order (${scope_label})"
+    else
+        echo -e "${BOLD}Recommended Merge Order (${scope_label})${RESET}"
+    fi
     echo ""
 
-    # Kahn's algorithm for topological sort
-    # In-degree: how many PRs must merge before this one
-    declare -A in_degree
-    for num in "${PR_NUMBERS[@]}"; do
-        in_degree[$num]=0
-    done
+    echo "$PR_JSON" | jq -r --arg no_color "$NO_COLOR" '
+        # Kahn topological sort
+        # A PR depends on another if its baseRefName == the others headRefName
+        ( [ .[].headRefName ] ) as $heads |
 
-    # Build dependency: if PR_B's base == PR_A's head, then B depends on A
-    declare -A depends_on  # depends_on[B] = "A1 A2 ..."
-    declare -A blocks      # blocks[A] = "B1 B2 ..."
-    for num in "${PR_NUMBERS[@]}"; do
-        local base="${PR_BASES[$num]}"
-        if [[ -n "${HEAD_TO_PR[$base]+x}" ]]; then
-            local dep="${HEAD_TO_PR[$base]}"
-            in_degree[$num]=$(( ${in_degree[$num]} + 1 ))
-            if [[ -n "${blocks[$dep]+x}" ]]; then
-                blocks[$dep]="${blocks[$dep]} $num"
+        # in_degree: count of dependencies for each PR
+        def in_degree(pr):
+            if ($heads | index(pr.baseRefName)) then 1 else 0 end;
+
+        # head_to_pr lookup
+        ( reduce .[] as $pr ({}; . + { ($pr.headRefName): $pr.number }) ) as $head_to_pr |
+
+        # Initialize
+        . as $prs |
+        ( [ $prs[] | { num: .number, head: .headRefName, base: .baseRefName, title: .title, deg: in_degree(.) } ] ) as $nodes |
+
+        # Iterative topological sort
+        { sorted: [], remaining: $nodes, step: 1 } |
+        until(
+            (.remaining | length) == 0 or ([ .remaining[] | select(.deg == 0) ] | length) == 0;
+            . as $state |
+            ([ $state.remaining[] | select(.deg == 0) ]) as $ready |
+            ([ $ready[].head ]) as $ready_heads |
+            {
+                sorted: ($state.sorted + $ready),
+                remaining: [
+                    $state.remaining[] |
+                    select(.deg != 0) |
+                    if (.base as $b | $ready_heads | index($b)) then .deg = (.deg - 1) else . end
+                ],
+                step: ($state.step + ($ready | length))
+            }
+        ) |
+
+        # Output sorted entries
+        (.sorted | to_entries[] |
+            .key as $idx |
+            .value as $pr |
+            if $no_color == "true" then
+                "  \($idx + 1). #\($pr.num) \($pr.head) -> \($pr.base) (\($pr.title))"
             else
-                blocks[$dep]="$num"
-            fi
-        fi
-    done
+                "  \u001b[1m\($idx + 1).\u001b[0m \u001b[0;36m#\($pr.num)\u001b[0m \($pr.head) \u001b[2m->\u001b[0m \u001b[0;32m\($pr.base)\u001b[0m \u001b[2m(\($pr.title))\u001b[0m"
+            end
+        ),
 
-    # BFS: start with PRs that have no dependencies (in_degree == 0)
-    local -a queue=()
-    for num in "${PR_NUMBERS[@]}"; do
-        if [[ ${in_degree[$num]} -eq 0 ]]; then
-            queue+=("$num")
-        fi
-    done
-
-    local step=1
-    local -a sorted=()
-    local -a processing=("${queue[@]}")
-
-    while [[ ${#processing[@]} -gt 0 ]]; do
-        local -a next_queue=()
-        for num in "${processing[@]}"; do
-            sorted+=("$num")
-            local base="${PR_BASES[$num]}"
-            local head="${PR_HEADS[$num]}"
-            local title="${PR_TITLES[$num]}"
-
-            if [[ "$NO_COLOR" == true ]]; then
-                echo "  ${step}. #${num} ${head} -> ${base} (${title})"
+        # Check for cycles
+        if (.remaining | length) > 0 then
+            "",
+            (if $no_color == "true" then
+                "Warning: circular dependency detected! The following PRs form a cycle:"
             else
-                echo -e "  ${BOLD}${step}.${RESET} ${CYAN}#${num}${RESET} ${head} ${DIM}->${RESET} ${GREEN}${base}${RESET} ${DIM}(${title})${RESET}"
-            fi
-            step=$((step + 1))
-
-            # Reduce in-degree for PRs blocked by this one
-            local blocked_str="${blocks[$num]:-}"
-            if [[ -n "$blocked_str" ]]; then
-                local -a blocked
-                read -ra blocked <<< "$blocked_str"
-                for b in "${blocked[@]}"; do
-                    in_degree[$b]=$(( ${in_degree[$b]} - 1 ))
-                    if [[ ${in_degree[$b]} -eq 0 ]]; then
-                        next_queue+=("$b")
-                    fi
-                done
-            fi
-        done
-        processing=("${next_queue[@]+"${next_queue[@]}"}")
-    done
-
-    # Check for cycles
-    if [[ ${#sorted[@]} -ne ${#PR_NUMBERS[@]} ]]; then
-        echo ""
-        println_color "$RED" "Warning: circular dependency detected! The following PRs form a cycle:"
-        for num in "${PR_NUMBERS[@]}"; do
-            local found=false
-            for s in "${sorted[@]}"; do
-                if [[ "$s" == "$num" ]]; then
-                    found=true
-                    break
-                fi
-            done
-            if [[ "$found" == false ]]; then
-                echo "  #${num} ${PR_HEADS[$num]} -> ${PR_BASES[$num]}"
-            fi
-        done
-    fi
+                "\u001b[0;31mWarning: circular dependency detected! The following PRs form a cycle:\u001b[0m"
+            end),
+            (.remaining[] | "  #\(.num) \(.head) -> \(.base)")
+        else empty end
+    '
 }
 
-# --- files command: file overlap matrix ---
+# --- files command: file overlap detection ---
 cmd_files() {
     local scope_label="$AUTHOR"
-    [[ "$ALL_AUTHORS" == true ]] && scope_label="all authors"
+    [ "$ALL_AUTHORS" = true ] && scope_label="all authors"
 
-    println_color "$BOLD" "File Overlap Analysis (${scope_label})"
+    if [ "$NO_COLOR" = true ]; then
+        echo "File Overlap Analysis (${scope_label})"
+    else
+        echo -e "${BOLD}File Overlap Analysis (${scope_label})${RESET}"
+    fi
     echo ""
 
-    if [[ $PR_COUNT -gt 20 ]]; then
-        println_color "$YELLOW" "Warning: fetching file lists for $PR_COUNT PRs, this may take a moment..."
+    if [ "$PR_COUNT" -gt 20 ]; then
+        if [ "$NO_COLOR" = true ]; then
+            echo "Warning: fetching file lists for $PR_COUNT PRs, this may take a moment..." >&2
+        else
+            echo -e "${YELLOW}Warning: fetching file lists for $PR_COUNT PRs, this may take a moment...${RESET}" >&2
+        fi
     fi
 
-    # Fetch files for each PR
-    declare -A PR_FILES  # PR_FILES[number] = newline-separated file paths
-    for num in "${PR_NUMBERS[@]}"; do
+    # Collect PR numbers
+    local pr_numbers
+    pr_numbers=$(echo "$PR_JSON" | jq -r '.[].number')
+
+    # Fetch file lists into a temp dir (one file per PR)
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "$tmpdir"' EXIT
+
+    for num in $pr_numbers; do
+        # shellcheck disable=SC2086
+        gh pr view "$num" $REPO_FLAG --json files --jq '.files[].path' 2>/dev/null | sort > "$tmpdir/$num" || true
+    done
+
+    # Build a combined JSON with PR metadata + files for jq to process overlaps
+    local combined="[]"
+    for num in $pr_numbers; do
+        local head
+        head=$(echo "$PR_JSON" | jq -r --argjson n "$num" '.[] | select(.number == $n) | .headRefName')
         local files_json
-        files_json=$(gh pr view "$num" $REPO_FLAG --json files --jq '.files[].path' 2>/dev/null) || {
-            PR_FILES[$num]=""
-            continue
-        }
-        PR_FILES[$num]="$files_json"
+        files_json=$(jq -R -s 'split("\n") | map(select(length > 0))' < "$tmpdir/$num")
+        combined=$(echo "$combined" | jq --argjson n "$num" --arg h "$head" --argjson f "$files_json" \
+            '. + [{ number: $n, head: $h, files: $f }]')
     done
 
-    # Find overlaps between each pair
-    local found_overlap=false
-    for ((i = 0; i < ${#PR_NUMBERS[@]}; i++)); do
-        for ((j = i + 1; j < ${#PR_NUMBERS[@]}; j++)); do
-            local num_a="${PR_NUMBERS[$i]}"
-            local num_b="${PR_NUMBERS[$j]}"
-            local files_a="${PR_FILES[$num_a]}"
-            local files_b="${PR_FILES[$num_b]}"
+    # Use jq to find pairwise overlaps
+    local result
+    result=$(echo "$combined" | jq -r --arg no_color "$NO_COLOR" '
+        . as $prs |
+        [ range(length) as $i | range($i+1; length) as $j |
+            ($prs[$i].files - ($prs[$i].files - $prs[$j].files)) as $common |
+            select(($common | length) > 0) |
+            {
+                a_num: $prs[$i].number,
+                a_head: $prs[$i].head,
+                b_num: $prs[$j].number,
+                b_head: $prs[$j].head,
+                common: $common
+            }
+        ] |
+        if length == 0 then
+            if $no_color == "true" then
+                "No file overlaps detected between PRs."
+            else
+                "\u001b[0;32mNo file overlaps detected between PRs.\u001b[0m"
+            end
+        else
+            .[] |
+            (if $no_color == "true" then
+                "#\(.a_num) (\(.a_head)) <-> #\(.b_num) (\(.b_head)): \(.common | length) shared file(s)"
+            else
+                "\u001b[0;36m#\(.a_num)\u001b[0m (\(.a_head)) \u001b[0;33m<->\u001b[0m \u001b[0;36m#\(.b_num)\u001b[0m (\(.b_head)): \u001b[1m\(.common | length)\u001b[0m shared file(s)"
+            end),
+            (.common[] | "    \(.)"),
+            ""
+        end
+    ')
 
-            if [[ -z "$files_a" || -z "$files_b" ]]; then
-                continue
-            fi
-
-            # Find common files
-            local common
-            common=$(comm -12 <(echo "$files_a" | sort) <(echo "$files_b" | sort))
-
-            if [[ -n "$common" ]]; then
-                found_overlap=true
-                local count
-                count=$(echo "$common" | wc -l | tr -d ' ')
-
-                if [[ "$NO_COLOR" == true ]]; then
-                    echo "#${num_a} (${PR_HEADS[$num_a]}) <-> #${num_b} (${PR_HEADS[$num_b]}): ${count} shared file(s)"
-                else
-                    echo -e "${CYAN}#${num_a}${RESET} (${PR_HEADS[$num_a]}) ${YELLOW}<->${RESET} ${CYAN}#${num_b}${RESET} (${PR_HEADS[$num_b]}): ${BOLD}${count}${RESET} shared file(s)"
-                fi
-                echo "$common" | while read -r f; do
-                    echo "    $f"
-                done
-                echo ""
-            fi
-        done
-    done
-
-    if [[ "$found_overlap" == false ]]; then
-        println_color "$GREEN" "No file overlaps detected between PRs."
-    fi
+    echo "$result"
 }
 
 # --- Parse arguments ---
 parse_args() {
     local positional_set=false
-    while [[ $# -gt 0 ]]; do
+    while [ $# -gt 0 ]; do
         case "$1" in
             graph|order|files)
-                if [[ "$positional_set" == false ]]; then
+                if [ "$positional_set" = false ]; then
                     COMMAND="$1"
                     positional_set=true
                 else
@@ -554,7 +440,6 @@ main() {
     resolve_author
     resolve_base_branch
     fetch_prs
-    build_graph
 
     case "$COMMAND" in
         graph) cmd_graph ;;
