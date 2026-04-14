@@ -128,16 +128,30 @@ runtimes:
 		t.Fatal(err)
 	}
 
-	// Create dummy templates to satisfy FindTemplate
-	templatesDir := filepath.Join(dotScion, "templates")
-	if err := os.MkdirAll(templatesDir, 0755); err != nil {
-		t.Fatal(err)
+	// Create templates with scion-agent.yaml so harness-config resolution
+	// finds a harness_config value instead of falling through to the
+	// embedded default ("gemini") which has no on-disk directory.
+	for _, tpl := range []string{"default", "claude"} {
+		tplDir := filepath.Join(dotScion, "templates", tpl)
+		if err := os.MkdirAll(tplDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		cfg := "harness_config: " + tpl + "\n"
+		if err := os.WriteFile(filepath.Join(tplDir, "scion-agent.yaml"), []byte(cfg), 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := os.Mkdir(filepath.Join(templatesDir, "default"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(templatesDir, "claude"), 0755); err != nil {
-		t.Fatal(err)
+
+	// Create harness-config directories so FindHarnessConfigDir can resolve them.
+	for _, hc := range []string{"default", "claude"} {
+		hcDir := filepath.Join(dotScion, "harness-configs", hc)
+		if err := os.MkdirAll(hcDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		cfg := "harness: " + hc + "\nimage: test-image:" + hc + "\n"
+		if err := os.WriteFile(filepath.Join(hcDir, "config.yaml"), []byte(cfg), 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	cfg := DefaultServerConfig()
@@ -162,8 +176,9 @@ runtimes:
 		},
 	}
 
-	// NameFunc returns "docker" so resolveManagerForOpts matches the settings-resolved runtime.
-	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
+	// NameFunc returns "mock" to match ForceRuntime so resolveManagerForOpts
+	// returns the mock manager directly instead of creating a real one.
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "mock" }}
 
 	return New(cfg, mgr, rt)
 }

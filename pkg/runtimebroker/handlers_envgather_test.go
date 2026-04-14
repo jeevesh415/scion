@@ -462,16 +462,28 @@ runtimes:
 		t.Fatal(err)
 	}
 
-	// Create dummy templates to satisfy FindTemplate
-	templatesDir := filepath.Join(groveDir, "templates")
-	if err := os.MkdirAll(templatesDir, 0755); err != nil {
+	// Create templates with scion-agent.yaml so harness-config resolution
+	// finds a harness_config value instead of falling through to the
+	// embedded default ("gemini") which has no on-disk directory.
+	tplDir := filepath.Join(groveDir, "templates", "claude")
+	if err := os.MkdirAll(tplDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(filepath.Join(templatesDir, "claude"), 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(tplDir, "scion-agent.yaml"), []byte("harness_config: claude\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
+
+	// Create harness-config directory so FindHarnessConfigDir can resolve it.
+	hcDir := filepath.Join(groveDir, "harness-configs", "claude")
+	if err := os.MkdirAll(hcDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hcDir, "config.yaml"), []byte("harness: claude\nimage: test-image:claude\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	mgr := &envCapturingManager{}
-	srv := New(cfg, mgr, &runtime.MockRuntime{NameFunc: func() string { return "docker" }})
+	srv := New(cfg, mgr, &runtime.MockRuntime{NameFunc: func() string { return "mock" }})
 
 	body := fmt.Sprintf(`{
 		"requestId": "req-idempotent-1",
