@@ -642,8 +642,8 @@ runtimes:
 			{
 				ID:        "container-abc",
 				Name:      "my-agent",
-				Slug:      "", // empty slug — handler must fall back to Name
-				GrovePath: tmpDir,
+				Slug:      "",       // empty slug — handler must fall back to Name
+				GrovePath: dotScion, // matches production: GrovePath is the resolved .scion directory
 				Phase:     "running",
 			},
 		},

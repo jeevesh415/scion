@@ -1341,7 +1341,7 @@ func (s *Server) getLogs(w http.ResponseWriter, r *http.Request, id, groveID str
 			agentSlug = found.Name
 		}
 		agentLogPath := filepath.Join(config.GetAgentHomePath(
-			filepath.Join(found.GrovePath, ".scion"), agentSlug,
+			found.GrovePath, agentSlug,
 		), "agent.log")
 		if data, err := os.ReadFile(agentLogPath); err == nil {
 			w.Header().Set("Content-Type", "text/plain")
