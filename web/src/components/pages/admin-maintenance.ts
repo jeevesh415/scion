@@ -515,9 +515,12 @@ export class ScionPageAdminMaintenance extends LitElement {
     }
   }
 
-  private async loadData(): Promise<void> {
-    this.loading = true;
-    this.error = null;
+  private async loadData(isPolling = false): Promise<void> {
+    // Only show loading spinner on initial load, not during poll refreshes.
+    if (!isPolling) {
+      this.loading = true;
+      this.error = null;
+    }
 
     try {
       const response = await apiFetch('/api/v1/admin/maintenance/operations');
@@ -526,8 +529,16 @@ export class ScionPageAdminMaintenance extends LitElement {
       }
 
       const data = (await response.json()) as MaintenanceResponse;
-      this.migrations = data.migrations ?? [];
-      this.operations = data.operations ?? [];
+      const newMigrations = data.migrations ?? [];
+      const newOperations = data.operations ?? [];
+
+      // Only update state (and trigger re-render) if data actually changed.
+      if (JSON.stringify(this.migrations) !== JSON.stringify(newMigrations)) {
+        this.migrations = newMigrations;
+      }
+      if (JSON.stringify(this.operations) !== JSON.stringify(newOperations)) {
+        this.operations = newOperations;
+      }
 
       // Start polling if any migration or operation run is active.
       const hasRunning =
@@ -540,15 +551,19 @@ export class ScionPageAdminMaintenance extends LitElement {
       }
     } catch (err) {
       console.error('Failed to load maintenance operations:', err);
-      this.error = err instanceof Error ? err.message : 'Failed to load maintenance operations';
+      if (!isPolling) {
+        this.error = err instanceof Error ? err.message : 'Failed to load maintenance operations';
+      }
     } finally {
-      this.loading = false;
+      if (!isPolling) {
+        this.loading = false;
+      }
     }
   }
 
   private startPolling(): void {
     if (this.pollTimer) return;
-    this.pollTimer = setInterval(() => void this.loadData(), 3000);
+    this.pollTimer = setInterval(() => void this.loadData(true), 3000);
   }
 
   private stopPolling(): void {
