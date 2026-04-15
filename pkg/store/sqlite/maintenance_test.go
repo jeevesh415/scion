@@ -139,3 +139,71 @@ func TestMaintenanceRunCRUD(t *testing.T) {
 	_, err = s.GetMaintenanceRun(ctx, "nonexistent")
 	assert.ErrorIs(t, err, store.ErrNotFound)
 }
+
+func TestAbortRunningMaintenanceOps(t *testing.T) {
+	s := setupTestStore(t)
+	ctx := context.Background()
+
+	// Set a migration to "running" to simulate an interrupted migration.
+	op, err := s.GetMaintenanceOperation(ctx, "secret-hub-id-migration")
+	require.NoError(t, err)
+	now := time.Now()
+	op.Status = store.MaintenanceStatusRunning
+	op.StartedAt = &now
+	op.StartedBy = "admin@example.com"
+	require.NoError(t, s.UpdateMaintenanceOperation(ctx, op))
+
+	// Create two "running" operation runs to simulate interrupted operations.
+	for i, key := range []string{"pull-images", "rebuild-server"} {
+		run := &store.MaintenanceOperationRun{
+			ID:           api.NewUUID(),
+			OperationKey: key,
+			Status:       store.MaintenanceStatusRunning,
+			StartedAt:    now.Add(time.Duration(i) * time.Second),
+			StartedBy:    "admin@example.com",
+		}
+		require.NoError(t, s.CreateMaintenanceRun(ctx, run))
+	}
+
+	// Create a completed run that should NOT be affected.
+	completed := now.Add(-time.Hour)
+	completedRun := &store.MaintenanceOperationRun{
+		ID:           api.NewUUID(),
+		OperationKey: "pull-images",
+		Status:       store.MaintenanceStatusCompleted,
+		StartedAt:    completed,
+		CompletedAt:  &completed,
+		StartedBy:    "admin@example.com",
+	}
+	require.NoError(t, s.CreateMaintenanceRun(ctx, completedRun))
+
+	// Abort all running operations.
+	runs, migrations, err := s.AbortRunningMaintenanceOps(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), runs, "expected 2 stalled runs aborted")
+	assert.Equal(t, int64(1), migrations, "expected 1 stalled migration reset")
+
+	// Verify the migration was reset to pending.
+	op, err = s.GetMaintenanceOperation(ctx, "secret-hub-id-migration")
+	require.NoError(t, err)
+	assert.Equal(t, store.MaintenanceStatusPending, op.Status)
+	assert.Nil(t, op.StartedAt)
+
+	// Verify running runs were marked as failed.
+	allRuns, err := s.ListMaintenanceRuns(ctx, "pull-images", 10)
+	require.NoError(t, err)
+	for _, r := range allRuns {
+		if r.ID == completedRun.ID {
+			assert.Equal(t, store.MaintenanceStatusCompleted, r.Status, "completed run should be unchanged")
+		} else {
+			assert.Equal(t, store.MaintenanceStatusFailed, r.Status, "running run should be failed")
+			assert.NotNil(t, r.CompletedAt, "aborted run should have completedAt")
+		}
+	}
+
+	// Running it again should be a no-op.
+	runs, migrations, err = s.AbortRunningMaintenanceOps(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), runs)
+	assert.Equal(t, int64(0), migrations)
+}

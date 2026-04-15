@@ -17,6 +17,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/GoogleCloudPlatform/scion/pkg/store"
 )
@@ -191,6 +192,38 @@ func (s *SQLiteStore) GetMaintenanceRun(ctx context.Context, id string) (*store.
 	run.Result = result.String
 
 	return run, nil
+}
+
+// AbortRunningMaintenanceOps transitions any "running" operation runs and
+// migrations to "failed" with an appropriate result message. This is called at
+// server startup to clean up operations interrupted by a restart.
+func (s *SQLiteStore) AbortRunningMaintenanceOps(ctx context.Context) (int64, int64, error) {
+	now := sql.NullTime{Time: time.Now(), Valid: true}
+	result := `{"error":"aborted: server was restarted while operation was running"}`
+
+	// Abort stalled runs.
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE maintenance_operation_runs
+		SET status = 'failed', completed_at = ?, result = ?
+		WHERE status = 'running'
+	`, now, result)
+	if err != nil {
+		return 0, 0, err
+	}
+	runs, _ := res.RowsAffected()
+
+	// Reset stalled migrations back to pending (they can be retried).
+	res, err = s.db.ExecContext(ctx, `
+		UPDATE maintenance_operations
+		SET status = 'pending', started_at = NULL, completed_at = NULL, result = ?
+		WHERE status = 'running' AND category = 'migration'
+	`, result)
+	if err != nil {
+		return runs, 0, err
+	}
+	migrations, _ := res.RowsAffected()
+
+	return runs, migrations, nil
 }
 
 // ListMaintenanceRuns returns runs for a given operation key, ordered by started_at DESC.

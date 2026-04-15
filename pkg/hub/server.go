@@ -697,6 +697,15 @@ func New(cfg ServerConfig, s store.Store) (*Server, error) {
 		seedDevUser(ctx, s)
 	}
 
+	// Abort any maintenance operations/migrations left in "running" state from
+	// a previous server instance that was restarted mid-operation.
+	if runs, migrations, err := s.AbortRunningMaintenanceOps(ctx); err != nil {
+		slog.Warn("Failed to abort stalled maintenance operations", "error", err)
+	} else if runs > 0 || migrations > 0 {
+		slog.Info("Aborted stalled maintenance operations from previous run",
+			"runs", runs, "migrations", migrations)
+	}
+
 	// Build unified auth configuration
 	srv.authConfig = AuthConfig{
 		Mode:           "production",
